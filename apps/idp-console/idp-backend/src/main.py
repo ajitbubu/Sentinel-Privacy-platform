@@ -2,7 +2,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.v1.routes import auth, banner, consent_admin, dsar_admin, audit, webhook, health
+from src.api.v1.routes import (auth, banner, consent_admin, dsar_admin, audit,
+                               webhook, api_keys, health)
 from src.config.settings import settings
 
 app = FastAPI(
@@ -26,3 +27,4 @@ app.include_router(consent_admin.router, prefix="/api/v1/admin/consent", tags=["
 app.include_router(dsar_admin.router, prefix="/api/v1/admin/dsar", tags=["dsar-admin"])
 app.include_router(audit.router, prefix="/api/v1/admin/audit", tags=["audit"])
 app.include_router(webhook.router, prefix="/api/v1/admin/webhook", tags=["webhook"])
+app.include_router(api_keys.router, prefix="/api/v1/admin/api-keys", tags=["api-keys"])
