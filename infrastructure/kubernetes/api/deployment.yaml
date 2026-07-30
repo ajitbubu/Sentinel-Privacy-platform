@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: external-api
+  namespace: consent-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: external-api }
+  template:
+    metadata:
+      labels: { app: external-api }
+    spec:
+      containers:
+        - name: external-api
+          image: your-registry/external-api:latest
+          ports: [{ containerPort: 8003 }]
+          envFrom:
+            - secretRef: { name: platform-secrets }
+          readinessProbe:
+            httpGet: { path: /api/v1/health, port: 8003 }
+            initialDelaySeconds: 5
+          resources:
+            requests: { cpu: 250m, memory: 256Mi }
+            limits: { cpu: "1", memory: 512Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: external-api
+  namespace: consent-platform
+spec:
+  selector: { app: external-api }
+  ports: [{ port: 8003, targetPort: 8003 }]
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: external-api
+  namespace: consent-platform
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: external-api }
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } }

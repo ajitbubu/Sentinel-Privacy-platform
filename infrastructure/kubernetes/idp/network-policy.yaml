@@ -1,0 +1,14 @@
+# IDP Console is intranet-only: allow ingress ONLY from internal ingress controller
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: idp-intranet-only
+  namespace: consent-platform
+spec:
+  podSelector:
+    matchLabels: { app: idp-backend }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { name: internal-ingress }

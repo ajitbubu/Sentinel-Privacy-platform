@@ -1,0 +1,16 @@
+global:
+  scrape_interval: 15s
+
+rule_files:
+  - rules.yml
+
+scrape_configs:
+  - job_name: pmp-backend
+    static_configs: [{ targets: ['pmp-backend:8001'] }]
+    metrics_path: /metrics
+  - job_name: idp-backend
+    static_configs: [{ targets: ['idp-backend:8002'] }]
+    metrics_path: /metrics
+  - job_name: external-api
+    static_configs: [{ targets: ['external-api:8003'] }]
+    metrics_path: /metrics

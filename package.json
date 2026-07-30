@@ -1,0 +1,20 @@
+{
+  "name": "sentinel-privacy-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Enterprise Consent Management Platform - PMP Portal + IDP Console",
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "dev:pmp": "turbo run dev --filter='pmp-*'",
+    "dev:idp": "turbo run dev --filter='idp-*'",
+    "docker:up": "docker compose -f infrastructure/docker/docker-compose.yml up -d",
+    "docker:down": "docker compose -f infrastructure/docker/docker-compose.yml down"
+  },
+  "devDependencies": {
+    "turbo": "^1.13.0"
+  },
+  "packageManager": "pnpm@9.0.0"
+}

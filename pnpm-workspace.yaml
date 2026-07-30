@@ -1,0 +1,4 @@
+packages:
+  - 'apps/pmp-portal/pmp-frontend'
+  - 'apps/idp-console/idp-frontend'
+  - 'libs/*'

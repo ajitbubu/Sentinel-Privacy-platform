@@ -1,0 +1,1 @@
+{ "name": "@sentinel/validation", "version": "1.0.0", "main": "src/index.ts", "types": "src/index.ts", "dependencies": { "zod": "^3.23.0" } }
