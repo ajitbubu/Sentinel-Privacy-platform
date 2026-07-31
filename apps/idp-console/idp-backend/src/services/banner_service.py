@@ -50,7 +50,7 @@ def list_banners(db: Session, status: str | None = None) -> list[dict]:
 
 def get(db: Session, banner_id: str) -> dict | None:
     row = db.execute(
-        text("SELECT * FROM banners WHERE id = :bid"), {"bid": banner_id}
+        text("SELECT * FROM banners WHERE id = CAST(:bid AS UUID)"), {"bid": banner_id}
     ).mappings().first()
     return dict(row) if row else None
 
@@ -125,7 +125,7 @@ def update(db: Session, banner_id: str, data: dict, user_id: str,
               purposes = CAST(:purposes AS UUID[]), channels = CAST(:channels AS UUID[]),
               target_countries = :countries, target_languages = :languages,
               current_version = :version, updated_by_user_id = :uid, updated_at = NOW()
-            WHERE id = :bid
+            WHERE id = CAST(:bid AS UUID)
         """),
         {
             "bid": banner_id, "name": merged["name"], "description": merged.get("description"),
@@ -151,7 +151,7 @@ def update(db: Session, banner_id: str, data: dict, user_id: str,
 
 def _write_version(db: Session, banner_id: str, version: int, data: dict,
                    user_id: str, note: str | None, materially_changed: bool) -> None:
-    db.execute(text("UPDATE banner_versions SET is_current = FALSE WHERE banner_id = :bid"),
+    db.execute(text("UPDATE banner_versions SET is_current = FALSE WHERE banner_id = CAST(:bid AS UUID)"),
                {"bid": banner_id})
     db.execute(
         text("""
@@ -193,7 +193,7 @@ def publish(db: Session, banner_id: str, user_id: str) -> dict:
         text("""
             UPDATE banners SET status = 'published', is_active = TRUE,
                                published_at = NOW(), updated_at = NOW()
-            WHERE id = :bid
+            WHERE id = CAST(:bid AS UUID)
         """),
         {"bid": banner_id},
     )
@@ -228,7 +228,7 @@ def publish(db: Session, banner_id: str, user_id: str) -> dict:
 
 def rollback(db: Session, banner_id: str, target_version: int, user_id: str) -> dict:
     snapshot = db.execute(
-        text("SELECT snapshot FROM banner_versions WHERE banner_id = :bid AND version = :ver"),
+        text("SELECT snapshot FROM banner_versions WHERE banner_id = CAST(:bid AS UUID) AND version = :ver"),
         {"bid": banner_id, "ver": target_version},
     ).scalar()
     if snapshot is None:

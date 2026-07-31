@@ -52,7 +52,7 @@ def deliver(webhook: dict, event: dict, db) -> bool:
                         UPDATE webhook_deliveries
                         SET status = 'delivered', delivered_at = NOW(),
                             response_status_code = :code, attempt_number = :attempt
-                        WHERE id = :did
+                        WHERE id = CAST(:did AS UUID)
                     """),
                     {"did": delivery_id, "code": resp.status_code, "attempt": attempt},
                 )
@@ -74,7 +74,7 @@ def deliver(webhook: dict, event: dict, db) -> bool:
             text("""
                 UPDATE webhook_deliveries
                 SET status = 'retrying', attempt_number = :attempt, error_message = :err
-                WHERE id = :did
+                WHERE id = CAST(:did AS UUID)
             """),
             {"did": delivery_id, "attempt": attempt, "err": error},
         )
@@ -85,7 +85,7 @@ def deliver(webhook: dict, event: dict, db) -> bool:
 
     db.execute(
         text("""
-            UPDATE webhook_deliveries SET status = 'failed' WHERE id = :did;
+            UPDATE webhook_deliveries SET status = 'failed' WHERE id = CAST(:did AS UUID);
         """),
         {"did": delivery_id},
     )

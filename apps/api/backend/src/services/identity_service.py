@@ -72,7 +72,7 @@ def resolve_or_create(db: Session, email: str, *, source_system: str = "API",
             INSERT INTO subjects (email, email_normalized, email_hash, status,
                                   created_by_system)
             VALUES (:email, :norm, :ehash, 'active', :sys)
-            ON CONFLICT (email_normalized) DO UPDATE
+            ON CONFLICT (email_normalized) WHERE deleted_at IS NULL DO UPDATE
                 SET last_activity = NOW(), updated_at = NOW()
             RETURNING id
         """),

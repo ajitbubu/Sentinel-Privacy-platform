@@ -18,7 +18,7 @@ def list_for_subject(db: Session, subject_id: str, status: str | None = None,
             FROM consents c
             JOIN purposes p  ON c.purpose_id = p.id
             JOIN channels ch ON c.channel_id = ch.id
-            WHERE c.subject_id = :sid
+            WHERE c.subject_id = CAST(:sid AS UUID)
               AND c.deleted_at IS NULL
               AND (:status IS NULL OR c.status = :status)
             ORDER BY c.created_at DESC
@@ -37,8 +37,8 @@ def get(db: Session, consent_id: str, subject_id: str | None = None) -> dict | N
             FROM consents c
             JOIN purposes p  ON c.purpose_id = p.id
             JOIN channels ch ON c.channel_id = ch.id
-            WHERE c.id = :cid AND c.deleted_at IS NULL
-              AND (:sid IS NULL OR c.subject_id = :sid)
+            WHERE c.id = CAST(:cid AS UUID) AND c.deleted_at IS NULL
+              AND (:sid IS NULL OR c.subject_id = CAST(:sid AS UUID))
         """),
         {"cid": consent_id, "sid": subject_id},
     ).mappings().first()
@@ -50,7 +50,7 @@ def find_active(db: Session, subject_id: str, purpose_id: str, channel_id: str) 
     row = db.execute(
         text("""
             SELECT * FROM consents
-            WHERE subject_id = :sid AND purpose_id = :pid AND channel_id = :chid
+            WHERE subject_id = CAST(:sid AS UUID) AND purpose_id = :pid AND channel_id = :chid
               AND deleted_at IS NULL
             ORDER BY created_at DESC
             LIMIT 1
@@ -97,7 +97,7 @@ def update_status(db: Session, consent_id: str, status: str) -> dict | None:
                 is_active = (:status = 'granted'),
                 granted_at   = CASE WHEN :status = 'granted'   THEN NOW() ELSE granted_at END,
                 withdrawn_at = CASE WHEN :status = 'withdrawn' THEN NOW() ELSE withdrawn_at END
-            WHERE id = :cid AND deleted_at IS NULL
+            WHERE id = CAST(:cid AS UUID) AND deleted_at IS NULL
             RETURNING id, subject_id, purpose_id, channel_id, status, granted_at, withdrawn_at
         """),
         {"cid": consent_id, "status": status},
@@ -126,7 +126,7 @@ def preference_matrix(db: Session, subject_id: str) -> list[dict]:
             LEFT JOIN LATERAL (
                 SELECT id, status, granted_at, withdrawn_at, source_system
                 FROM consents
-                WHERE subject_id = :sid AND purpose_id = p.id AND channel_id = ch.id
+                WHERE subject_id = CAST(:sid AS UUID) AND purpose_id = p.id AND channel_id = ch.id
                   AND deleted_at IS NULL
                 ORDER BY created_at DESC LIMIT 1
             ) c ON TRUE
@@ -150,7 +150,7 @@ def history(db: Session, subject_id: str, days: int = 365, limit: int = 200) -> 
             JOIN purposes p  ON c.purpose_id = p.id
             JOIN channels ch ON c.channel_id = ch.id
             WHERE a.entity_type = 'consent'
-              AND c.subject_id = :sid
+              AND c.subject_id = CAST(:sid AS UUID)
               AND a.created_at > NOW() - make_interval(days => :days)
             ORDER BY a.created_at DESC
             LIMIT :limit

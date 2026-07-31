@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowDownRight, ArrowUpRight, FileSearch, Users } from 'lucide-react'
+import { AlertTriangle, FileSearch, Users } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import {
   Alert, AlertDescription, AlertTitle, Button, Card, CardContent, CardDescription,

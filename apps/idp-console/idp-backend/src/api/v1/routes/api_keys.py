@@ -108,7 +108,7 @@ def revoke_api_key(
             UPDATE api_keys
             SET is_active = FALSE, revoked_at = NOW(), revoked_reason = :reason,
                 updated_at = NOW()
-            WHERE id = :kid AND revoked_at IS NULL
+            WHERE id = CAST(:kid AS UUID) AND revoked_at IS NULL
             RETURNING id
         """),
         {"kid": key_id, "reason": body.reason},

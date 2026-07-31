@@ -16,8 +16,10 @@ services:
     ports: ["5432:5432"]
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Single directory mount. Do NOT nest a file mount inside this one —
+      # Docker creates the mount point as an empty file in the source tree,
+      # which silently shadows the real data. Reference data is 008_ instead.
       - ./database/schemas/postgresql:/docker-entrypoint-initdb.d
-      - ./database/seeds/seed_data.sql:/docker-entrypoint-initdb.d/900_seed_data.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U admin -d consent_db"]
       interval: 5s

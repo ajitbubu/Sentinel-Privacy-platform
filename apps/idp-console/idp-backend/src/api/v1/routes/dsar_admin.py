@@ -30,7 +30,7 @@ def preview_export(dsar_id: str, db: Session = Depends(get_db),
     """What would be sent, without marking the request fulfilled."""
     from sqlalchemy import text
     subject_id = db.execute(
-        text("SELECT subject_id FROM dsar_requests WHERE id = :did"), {"did": dsar_id}
+        text("SELECT subject_id FROM dsar_requests WHERE id = CAST(:did AS UUID)"), {"did": dsar_id}
     ).scalar()
     if subject_id is None:
         raise HTTPException(404, "Request not found")

@@ -44,7 +44,7 @@ def collect_subject_data(db: Session, subject_id: str) -> dict:
     subject = db.execute(
         text("""SELECT id, email, first_name, last_name, country_code, language,
                        status, created_at, last_activity
-                FROM subjects WHERE id = :sid"""),
+                FROM subjects WHERE id = CAST(:sid AS UUID)"""),
         {"sid": subject_id},
     ).mappings().first()
     if subject is None:
@@ -57,7 +57,7 @@ def collect_subject_data(db: Session, subject_id: str) -> dict:
             FROM consents c
             JOIN purposes p ON c.purpose_id = p.id
             JOIN channels ch ON c.channel_id = ch.id
-            WHERE c.subject_id = :sid AND c.deleted_at IS NULL
+            WHERE c.subject_id = CAST(:sid AS UUID) AND c.deleted_at IS NULL
             ORDER BY c.created_at DESC
         """),
         {"sid": subject_id},
@@ -67,10 +67,12 @@ def collect_subject_data(db: Session, subject_id: str) -> dict:
         text("""
             SELECT a.created_at, a.action, a.entity_type, a.actor_type, a.reason
             FROM audit_log a
+            -- :sid arrives as text; every comparison here is against a UUID
+            -- column, so it must be cast. Postgres will not coerce uuid = text.
             WHERE a.entity_id IN (
-                SELECT id::text FROM consents WHERE subject_id = :sid
-                UNION SELECT id::text FROM dsar_requests WHERE subject_id = :sid
-                UNION SELECT :sid
+                SELECT id FROM consents      WHERE subject_id = CAST(:sid AS UUID)
+                UNION SELECT id FROM dsar_requests WHERE subject_id = CAST(:sid AS UUID)
+                UNION SELECT CAST(:sid AS UUID)
             )
             ORDER BY a.created_at DESC LIMIT 1000
         """),
@@ -79,7 +81,7 @@ def collect_subject_data(db: Session, subject_id: str) -> dict:
 
     requests = db.execute(
         text("""SELECT id, request_type, status, submitted_at, due_date, fulfilled_at
-                FROM dsar_requests WHERE subject_id = :sid ORDER BY submitted_at DESC"""),
+                FROM dsar_requests WHERE subject_id = CAST(:sid AS UUID) ORDER BY submitted_at DESC"""),
         {"sid": subject_id},
     ).mappings().all()
 
@@ -95,6 +97,18 @@ def collect_subject_data(db: Session, subject_id: str) -> dict:
             "these are listed in the audit trail."
         ),
     }
+
+
+def _display(value) -> str:
+    """Render a value for a human-facing legal document.
+
+    Python's `None` must never appear in a GDPR response — "None" reads as a
+    value rather than an absence and invites a follow-up question we then have
+    to answer within the statutory window.
+    """
+    if value is None or value == "":
+        return "—"
+    return str(value)
 
 
 def render_json(data: dict) -> bytes:
@@ -141,9 +155,9 @@ def render_pdf(data: dict) -> bytes:
     story = []
 
     story.append(Paragraph("Personal Data Export", h1))
+    generated = str(data["export_generated_at"])[:19].replace("T", " ") + " UTC"
     story.append(Paragraph(
-        f"Generated {data['export_generated_at']} · "
-        f"Subject: {data['subject'].get('email', '')}", body))
+        f"Generated {generated} · Subject: {data['subject'].get('email', '')}", body))
     story.append(Spacer(1, 8))
     story.append(Paragraph(data["notes"], body))
     story.append(Spacer(1, 14))
@@ -163,22 +177,26 @@ def render_pdf(data: dict) -> bytes:
         story.append(Spacer(1, 14))
 
     table("Your details",
-          [["Field", "Value"]] + [[k, str(v)] for k, v in data["subject"].items()],
+          [["Field", "Value"]]
+          + [[k.replace("_", " ").capitalize(), _display(v)]
+             for k, v in data["subject"].items()],
           [55 * mm, 110 * mm])
 
     if data["consents"]:
         rows = [["Purpose", "Channel", "Status", "Basis", "Source", "Updated"]]
         for c in data["consents"]:
-            rows.append([c["purpose"], c["channel"], c["status"], c["legal_basis"],
-                         c.get("source_system") or "—",
-                         str(c.get("granted_at") or c.get("withdrawn_at") or "")[:19]])
+            rows.append([c["purpose"], c["channel"], c["status"].capitalize(),
+                         c["legal_basis"].replace("_", " "),
+                         _display(c.get("source_system")),
+                         _display(str(c.get("granted_at") or c.get("withdrawn_at") or "")[:19])])
         table("Your consents", rows, [32 * mm, 26 * mm, 24 * mm, 26 * mm, 26 * mm, 31 * mm])
 
     if data["audit_trail"]:
         story.append(PageBreak())
         rows = [["When", "Action", "Type", "Actor"]]
         for a in data["audit_trail"][:250]:
-            rows.append([str(a["created_at"])[:19], a["action"], a["entity_type"], a["actor_type"]])
+            rows.append([str(a["created_at"])[:19], a["action"].capitalize(),
+                         a["entity_type"].capitalize(), a["actor_type"].capitalize()])
         table("Change history", rows, [42 * mm, 42 * mm, 38 * mm, 43 * mm])
 
     doc.build(story)
@@ -193,7 +211,7 @@ def fulfil(db: Session, dsar_id: str, user_id: str, fmt: str = "json") -> tuple[
         raise DSARAdminError(f"format must be one of {sorted(VALID_FORMATS)}")
 
     row = db.execute(
-        text("SELECT subject_id, request_type, status FROM dsar_requests WHERE id = :did"),
+        text("SELECT subject_id, request_type, status FROM dsar_requests WHERE id = CAST(:did AS UUID)"),
         {"did": dsar_id},
     ).mappings().first()
     if row is None:
@@ -209,7 +227,7 @@ def fulfil(db: Session, dsar_id: str, user_id: str, fmt: str = "json") -> tuple[
                 SET status = 'fulfilled', fulfilled_at = NOW(),
                     response_method = :fmt, processed_by_user_id = :uid,
                     response_download_expires_at = NOW() + INTERVAL '7 days'
-                WHERE id = :did"""),
+                WHERE id = CAST(:did AS UUID)"""),
         {"did": dsar_id, "fmt": fmt, "uid": user_id},
     )
     db.commit()
@@ -225,7 +243,7 @@ def deny(db: Session, dsar_id: str, user_id: str, reason: str) -> dict:
     updated = db.execute(
         text("""UPDATE dsar_requests
                 SET status = 'denied', denial_reason = :reason, processed_by_user_id = :uid
-                WHERE id = :did AND status NOT IN ('fulfilled','denied','cancelled')
+                WHERE id = CAST(:did AS UUID) AND status NOT IN ('fulfilled','denied','cancelled')
                 RETURNING id"""),
         {"did": dsar_id, "reason": reason, "uid": user_id},
     ).scalar()

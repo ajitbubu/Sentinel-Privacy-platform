@@ -8,8 +8,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      '@sentinel/ui': path.resolve(__dirname, '../../../libs/ui/src'),
       '@sentinel/ui/styles.css': path.resolve(__dirname, '../../../libs/ui/src/styles/theme.css'),
+      '@sentinel/ui': path.resolve(__dirname, '../../../libs/ui/src'),
     },
   },
   server: {

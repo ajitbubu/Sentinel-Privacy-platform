@@ -32,7 +32,7 @@ def submit_consent(
     client=Depends(validate_api_key),
     db: Session = Depends(get_db),
 ):
-    return ConsentIngestService(db).ingest(body.model_dump(), client_id=client["client_id"])
+    return ConsentIngestService(db).ingest(body.model_dump(), client_id=client["key_id"])
 
 
 @router.post("/bulk", status_code=202)
@@ -42,5 +42,5 @@ def submit_bulk(
     db: Session = Depends(get_db),
 ):
     return ConsentIngestService(db).ingest_bulk(
-        [c.model_dump() for c in body.consents], client_id=client["client_id"]
+        [c.model_dump() for c in body.consents], client_id=client["key_id"]
     )

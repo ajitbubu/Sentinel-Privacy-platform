@@ -120,7 +120,7 @@ def authenticate(email: str, password: str, mfa_code: str | None, db: Session) -
             raise AuthError("Invalid MFA code")
 
     _clear_failures(email)
-    db.execute(text("UPDATE users SET last_login_at = NOW() WHERE id = :uid"), {"uid": user["id"]})
+    db.execute(text("UPDATE users SET last_login_at = NOW() WHERE id = CAST(:uid AS UUID)"), {"uid": user["id"]})
     db.commit()
     return user
 
@@ -129,7 +129,7 @@ def enroll_mfa(user_id: str, email: str, db: Session) -> dict:
     """Generate a TOTP secret and provisioning URI. Not enabled until confirmed."""
     secret = pyotp.random_base32()
     db.execute(
-        text("UPDATE users SET mfa_secret = :s, mfa_enabled = FALSE WHERE id = :uid"),
+        text("UPDATE users SET mfa_secret = :s, mfa_enabled = FALSE WHERE id = CAST(:uid AS UUID)"),
         {"s": secret, "uid": user_id},
     )
     db.commit()
@@ -140,11 +140,11 @@ def enroll_mfa(user_id: str, email: str, db: Session) -> dict:
 def confirm_mfa(user_id: str, code: str, db: Session) -> bool:
     """Activate MFA once the user proves they can generate a valid code."""
     secret = db.execute(
-        text("SELECT mfa_secret FROM users WHERE id = :uid"), {"uid": user_id}
+        text("SELECT mfa_secret FROM users WHERE id = CAST(:uid AS UUID)"), {"uid": user_id}
     ).scalar()
     if not secret or not pyotp.TOTP(secret).verify(code, valid_window=1):
         return False
-    db.execute(text("UPDATE users SET mfa_enabled = TRUE WHERE id = :uid"), {"uid": user_id})
+    db.execute(text("UPDATE users SET mfa_enabled = TRUE WHERE id = CAST(:uid AS UUID)"), {"uid": user_id})
     db.commit()
     return True
 

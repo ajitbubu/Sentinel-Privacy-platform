@@ -95,28 +95,31 @@ class ConsentIngestService:
         }, client_id="highspot-webhook")
 
     def _resolve_subject(self, email: str, source: str | None, external_id: str | None) -> str:
-        """Identity resolution: find or create subject by normalized email."""
+        """Identity resolution: find or create subject by normalized email.
+
+        ON CONFLICT (not SELECT-then-INSERT) so concurrent webhooks for the
+        same person converge on one row rather than racing to duplicates or
+        an IntegrityError — see identity_service.resolve_or_create, which
+        this mirrors.
+        """
         email_hash = hashlib.sha256(email.encode()).hexdigest()
-        row = self.db.execute(
-            text("SELECT id FROM subjects WHERE email_normalized = :email AND deleted_at IS NULL"),
-            {"email": email},
-        ).mappings().first()
-        if row:
-            if source and external_id:
-                col = {"salesforce": "salesforce_id", "hubspot": "hubspot_id",
-                       "outreach": "outreach_id", "highspot": "highspot_id"}.get(source)
-                if col:
-                    self.db.execute(
-                        text(f"UPDATE subjects SET {col} = :eid WHERE id = :sid"),
-                        {"eid": external_id, "sid": row["id"]},
-                    )
-            return str(row["id"])
-        new_row = self.db.execute(
+        subject_id = self.db.execute(
             text("""
                 INSERT INTO subjects (email, email_normalized, email_hash, created_by_system)
                 VALUES (:email, :email, :hash, :src)
+                ON CONFLICT (email_normalized) WHERE deleted_at IS NULL DO UPDATE
+                    SET last_activity = NOW(), updated_at = NOW()
                 RETURNING id
             """),
             {"email": email, "hash": email_hash, "src": source or "API"},
-        ).mappings().first()
-        return str(new_row["id"])
+        ).scalar()
+
+        if source and external_id:
+            col = {"salesforce": "salesforce_id", "hubspot": "hubspot_id",
+                   "outreach": "outreach_id", "highspot": "highspot_id"}.get(source)
+            if col:
+                self.db.execute(
+                    text(f"UPDATE subjects SET {col} = :eid WHERE id = :sid"),  # noqa: S608 - col is allowlisted
+                    {"eid": external_id, "sid": subject_id},
+                )
+        return str(subject_id)

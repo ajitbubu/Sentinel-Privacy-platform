@@ -2,8 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Activity, CheckCircle2, Webhook, XCircle } from 'lucide-react'
 import {
   Alert, AlertDescription, Badge, Card, CardContent, CardDescription, CardHeader,
-  CardTitle, EmptyState, Skeleton, Table, TableBody, TableCell, TableHead,
-  TableHeader, TableRow, cn,
+  CardTitle, EmptyState, Skeleton, cn,
 } from '@sentinel/ui'
 import { ConsoleShell, PageHeader } from '../components/ConsoleShell'
 import { api } from '../services/api'

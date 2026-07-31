@@ -27,7 +27,7 @@ def create(db: Session, *, subject_id: str, request_type: str,
     existing = db.execute(
         text("""
             SELECT id FROM dsar_requests
-            WHERE subject_id = :sid AND request_type = :rt
+            WHERE subject_id = CAST(:sid AS UUID) AND request_type = :rt
               AND status IN ('submitted', 'acknowledged', 'in_progress')
         """),
         {"sid": subject_id, "rt": request_type},
@@ -71,7 +71,7 @@ def list_for_subject(db: Session, subject_id: str) -> list[dict]:
             SELECT id, request_type, status, description, submitted_at, due_date,
                    fulfilled_at, denial_reason, response_download_expires_at
             FROM dsar_requests
-            WHERE subject_id = :sid
+            WHERE subject_id = CAST(:sid AS UUID)
             ORDER BY submitted_at DESC
         """),
         {"sid": subject_id},
@@ -86,7 +86,7 @@ def get(db: Session, dsar_id: str, subject_id: str) -> dict | None:
                    fulfilled_at, denial_reason, response_method,
                    response_download_expires_at
             FROM dsar_requests
-            WHERE id = :did AND subject_id = :sid
+            WHERE id = CAST(:did AS UUID) AND subject_id = CAST(:sid AS UUID)
         """),
         {"did": dsar_id, "sid": subject_id},
     ).mappings().first()
@@ -112,7 +112,7 @@ def cancel(db: Session, dsar_id: str, subject_id: str) -> bool:
     updated = db.execute(
         text("""
             UPDATE dsar_requests SET status = 'cancelled'
-            WHERE id = :did AND subject_id = :sid
+            WHERE id = CAST(:did AS UUID) AND subject_id = CAST(:sid AS UUID)
               AND status IN ('submitted', 'acknowledged')
             RETURNING id
         """),

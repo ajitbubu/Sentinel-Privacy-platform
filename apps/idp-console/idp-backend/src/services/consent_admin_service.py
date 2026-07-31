@@ -41,14 +41,14 @@ class ConsentAdminService:
 
     def admin_update(self, consent_id: UUID, status: str, reason: str, actor_id: str) -> dict:
         old = self.db.execute(
-            text("SELECT status FROM consents WHERE id = :cid"), {"cid": str(consent_id)}
+            text("SELECT status FROM consents WHERE id = CAST(:cid AS UUID)"), {"cid": str(consent_id)}
         ).mappings().first()
         row = self.db.execute(
             text("""
                 UPDATE consents SET status = :status, updated_by_user_id = :actor,
                     granted_at = CASE WHEN :status = 'granted' THEN NOW() ELSE granted_at END,
                     withdrawn_at = CASE WHEN :status = 'withdrawn' THEN NOW() ELSE withdrawn_at END
-                WHERE id = :cid RETURNING id, status
+                WHERE id = CAST(:cid AS UUID) RETURNING id, status
             """),
             {"status": status, "actor": actor_id, "cid": str(consent_id)},
         ).mappings().first()

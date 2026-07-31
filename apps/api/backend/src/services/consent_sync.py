@@ -61,7 +61,7 @@ def apply(db: Session, *, subject_id: str, signal: ConsentSignal) -> dict:
 
     existing = db.execute(
         text("""SELECT id, status, source_system, withdrawn_at FROM consents
-                WHERE subject_id = :sid AND purpose_id = :pid AND channel_id = :chid
+                WHERE subject_id = CAST(:sid AS UUID) AND purpose_id = :pid AND channel_id = :chid
                   AND deleted_at IS NULL
                 ORDER BY created_at DESC LIMIT 1"""),
         {"sid": subject_id, "pid": purpose_id, "chid": channel_id},
@@ -80,7 +80,7 @@ def apply(db: Session, *, subject_id: str, signal: ConsentSignal) -> dict:
                        granted_at   = CASE WHEN :st = 'granted'   THEN NOW() ELSE granted_at END,
                        withdrawn_at = CASE WHEN :st = 'withdrawn' THEN NOW() ELSE withdrawn_at END,
                        source_system = :src
-                    WHERE id = :cid RETURNING id"""),
+                    WHERE id = CAST(:cid AS UUID) RETURNING id"""),
             {"st": new_status, "cid": existing["id"], "src": signal.source_system},
         ).scalar()
     else:

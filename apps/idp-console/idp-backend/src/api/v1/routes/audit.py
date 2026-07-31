@@ -1,5 +1,7 @@
 """Audit-trail search and export."""
-from fastapi import APIRouter, Depends, Query, Response
+import uuid as _uuid
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from src.api.v1.middleware.auth import require_permission
@@ -9,11 +11,27 @@ from src.services import audit_query_service
 router = APIRouter()
 
 
+def _validate_uuid(value: str | None, field: str) -> str | None:
+    """Reject malformed UUIDs at the edge with a 400.
+
+    The SQL casts the bind parameter to UUID so the index stays usable; without
+    this guard a typo in the filter box surfaces as an opaque 500.
+    """
+    if value in (None, ""):
+        return None
+    try:
+        _uuid.UUID(value)
+    except ValueError:
+        raise HTTPException(400, f"{field} must be a valid UUID")
+    return value
+
+
 def _filters(entity_type: str | None, action: str | None, actor_id: str | None,
              entity_id: str | None, from_date: str | None, to_date: str | None,
              gdpr_only: bool) -> dict:
     return {"entity_type": entity_type, "action": action, "actor_id": actor_id,
-            "entity_id": entity_id, "from_date": from_date, "to_date": to_date,
+            "entity_id": _validate_uuid(entity_id, "entity_id"),
+            "from_date": from_date, "to_date": to_date,
             "gdpr_only": gdpr_only}
 
 

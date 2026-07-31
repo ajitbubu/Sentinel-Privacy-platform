@@ -101,7 +101,7 @@ def refresh(body: RefreshRequest, db: Session = Depends(get_db)):
     from sqlalchemy import text
     row = db.execute(
         text("""SELECT id, email, first_name, last_name, role, status
-                FROM users WHERE id = :uid"""),
+                FROM users WHERE id = CAST(:uid AS UUID)"""),
         {"uid": user_id},
     ).mappings().first()
     if row is None or row["status"] != "active":
@@ -119,7 +119,7 @@ def logout(body: RefreshRequest):
 def me(user: dict = Depends(get_current_admin), db: Session = Depends(get_db)):
     from sqlalchemy import text
     row = db.execute(
-        text("SELECT id, email, first_name, last_name, role FROM users WHERE id = :uid"),
+        text("SELECT id, email, first_name, last_name, role FROM users WHERE id = CAST(:uid AS UUID)"),
         {"uid": user["sub"]},
     ).mappings().first()
     if row is None:

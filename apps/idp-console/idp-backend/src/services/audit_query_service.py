@@ -1,4 +1,10 @@
-"""Audit-trail search and export."""
+"""Audit-trail search and export.
+
+`entity_id` is a UUID column, so the bind parameter is cast rather than the
+column: casting the column to text instead would work but would forfeit the
+index, and this table grows without bound. Malformed input is rejected at the
+route with a 400 before it reaches the cast.
+"""
 import csv
 import io
 
@@ -9,7 +15,7 @@ FILTER_SQL = """
     WHERE (:entity_type IS NULL OR a.entity_type = :entity_type)
       AND (:action      IS NULL OR a.action = :action)
       AND (:actor_id    IS NULL OR a.actor_id = :actor_id)
-      AND (:entity_id   IS NULL OR a.entity_id = :entity_id)
+      AND (:entity_id   IS NULL OR a.entity_id = CAST(:entity_id AS UUID))
       AND (:from_date   IS NULL OR a.created_at >= CAST(:from_date AS timestamptz))
       AND (:to_date     IS NULL OR a.created_at <= CAST(:to_date AS timestamptz))
       AND (:gdpr_only = FALSE OR a.is_gdpr_relevant = TRUE)

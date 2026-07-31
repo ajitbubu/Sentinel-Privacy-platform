@@ -46,6 +46,6 @@ def lookup_active_key(api_key: str, db: Session) -> dict | None:
 
 def touch_last_used(key_id: str, db: Session) -> None:
     db.execute(
-        text("UPDATE api_keys SET last_used_at = NOW() WHERE id = :kid"), {"kid": key_id}
+        text("UPDATE api_keys SET last_used_at = NOW() WHERE id = CAST(:kid AS UUID)"), {"kid": key_id}
     )
     db.commit()

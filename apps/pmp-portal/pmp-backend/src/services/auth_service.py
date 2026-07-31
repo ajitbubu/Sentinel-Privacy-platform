@@ -71,7 +71,7 @@ def verify_magic_link(token: str, db: Session) -> tuple[str, str] | None:
             INSERT INTO subjects (email, email_normalized, email_hash,
                                   status, created_by_system)
             VALUES (:email, :email, :ehash, 'active', 'PMP')
-            ON CONFLICT (email) DO UPDATE
+            ON CONFLICT (email_normalized) WHERE deleted_at IS NULL DO UPDATE
                 SET last_activity = NOW(), updated_at = NOW()
             RETURNING id
         """),
