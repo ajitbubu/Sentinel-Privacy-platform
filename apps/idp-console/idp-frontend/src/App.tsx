@@ -1,11 +1,12 @@
 import { Navigate, Outlet, Route, Routes } from 'react-router-dom'
-import DashboardPage from './pages/DashboardPage'
+import ApiKeysPage from './pages/ApiKeysPage'
+import AuditPage from './pages/AuditPage'
 import BannerBuilderPage from './pages/BannerBuilderPage'
 import ConsentAdminPage from './pages/ConsentAdminPage'
 import DSARAdminPage from './pages/DSARAdminPage'
-import AuditPage from './pages/AuditPage'
-import WebhooksPage from './pages/WebhooksPage'
+import DashboardPage from './pages/DashboardPage'
 import LoginPage from './pages/LoginPage'
+import WebhooksPage from './pages/WebhooksPage'
 import { hasPermission, isAuthenticated } from './services/auth'
 
 function RequireAuth() {
@@ -16,9 +17,13 @@ function RequirePermission({ permission }: { permission: string }) {
   if (!isAuthenticated()) return <Navigate to="/login" replace />
   if (!hasPermission(permission)) {
     return (
-      <main style={{ padding: 40, fontFamily: 'system-ui, sans-serif' }}>
-        <h1 style={{ fontSize: 20 }}>Access denied</h1>
-        <p style={{ color: '#666' }}>Your role does not include <code>{permission}</code>.</p>
+      <main className="grid min-h-screen place-items-center p-10 text-center">
+        <div>
+          <h1 className="text-lg font-semibold">Access denied</h1>
+          <p className="text-muted-foreground mt-1 text-sm">
+            Your role does not include <code className="font-mono">{permission}</code>.
+          </p>
+        </div>
       </main>
     )
   }
@@ -31,7 +36,7 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route element={<RequireAuth />}>
         <Route path="/" element={<DashboardPage />} />
-        <Route element={<RequirePermission permission="write:banner" />}>
+        <Route element={<RequirePermission permission="read:banner" />}>
           <Route path="/banner" element={<BannerBuilderPage />} />
         </Route>
         <Route element={<RequirePermission permission="read:consent_admin" />}>
@@ -45,6 +50,7 @@ export default function App() {
         </Route>
         <Route element={<RequirePermission permission="read:webhook" />}>
           <Route path="/webhooks" element={<WebhooksPage />} />
+          <Route path="/api-keys" element={<ApiKeysPage />} />
         </Route>
       </Route>
     </Routes>

@@ -1,7 +1,7 @@
 """Conflict-resolution rules — pure function, no DB needed."""
 from datetime import datetime, timedelta, timezone
 
-from src.services.consent_service import should_apply
+from src.services.consent_rules import should_apply
 
 NOW = datetime(2026, 7, 30, 12, 0, tzinfo=timezone.utc)
 
@@ -35,8 +35,33 @@ def test_user_can_resubscribe_immediately_via_portal():
     assert apply is True
 
 
-def test_crm_grant_applies_after_window_expires():
-    apply, _ = should_apply(_withdrawn(48), "granted", "salesforce", NOW)
+def test_crm_grant_never_resurrects_a_first_party_withdrawal():
+    """Even after the conflict window expires, a third-party sync must not undo
+    an explicit first-party withdrawal.
+
+    This was originally written expecting the opposite, and running it caught the
+    disagreement. On reflection the stricter behaviour is correct: if someone opts
+    out in the portal, a CRM asserting 'granted' two days later has no provenance
+    a DPO could defend. Legitimate re-subscription flows through a first-party
+    channel (portal or banner), which is tier 3 and does apply — see the test below.
+    """
+    apply, reason = should_apply(_withdrawn(48), "granted", "salesforce", NOW)
+    assert apply is False
+    assert "outranked" in reason
+
+
+def test_crm_grant_applies_over_another_crms_withdrawal():
+    """Tier precedence is about provenance, not recency: same-tier signals resolve
+    by newest, so one CRM can supersede another."""
+    existing = {"status": "withdrawn", "source_system": "hubspot",
+                "withdrawn_at": NOW - timedelta(hours=48)}
+    apply, _ = should_apply(existing, "granted", "salesforce", NOW)
+    assert apply is True
+
+
+def test_banner_reconsent_beats_stale_portal_withdrawal():
+    """The documented re-subscription path: a first-party capture point."""
+    apply, _ = should_apply(_withdrawn(48), "granted", "cookie_banner", NOW)
     assert apply is True
 
 
@@ -46,11 +71,22 @@ def test_withdrawal_always_beats_grant_regardless_of_source():
     assert apply is True
 
 
-def test_third_party_cannot_override_first_party_state():
+def test_third_party_withdrawal_beats_first_party_grant():
+    """A CRM may not be trusted to grant on someone's behalf, but it is always
+    trusted to report an opt-out. The safe direction wins over source tier."""
     existing = {"status": "granted", "source_system": "PMP", "withdrawn_at": None}
     apply, reason = should_apply(existing, "withdrawn", "salesforce", NOW)
-    # Withdrawals are always honoured — safety direction wins over tier
     assert apply is True
+    assert reason == "withdrawal always honoured"
+
+
+def test_third_party_grant_cannot_override_first_party_withdrawal_state():
+    """Inverse direction: a low-tier grant must not override first-party state."""
+    existing = {"status": "withdrawn", "source_system": "PMP",
+                "withdrawn_at": NOW - timedelta(days=10)}
+    apply, reason = should_apply(existing, "granted", "salesforce", NOW)
+    assert apply is False
+    assert "outranked" in reason
 
 
 def test_naive_timestamps_are_handled():

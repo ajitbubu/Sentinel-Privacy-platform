@@ -1,20 +1,8 @@
-"""Consent business logic, including conflict resolution.
+"""Consent business logic.
 
-CONFLICT RULE (see Build-Plan decision note)
---------------------------------------------
-Naive "opt-out always wins" permanently breaks re-subscription: a person who
-withdraws could never opt back in, because their new grant would always lose to
-the older withdrawal. The implemented rule is:
-
-  1. Inside the conflict window (default 24h), a withdrawal beats a grant
-     regardless of timestamp. This is what stops a stale CRM sync from
-     resurrecting consent someone just withdrew.
-  2. Outside the window, source tier decides: a first-party explicit action
-     (PMP portal, cookie banner) beats a third-party sync (Salesforce, HubSpot).
-  3. Among same-tier signals, newest timestamp wins.
-
-Mandatory purposes cannot be withdrawn; that is enforced here, not in the UI,
-because the UI is not a security boundary.
+Conflict resolution lives in `consent_rules` — a dependency-free module — so
+the rules can be unit-tested without a database. This module handles the I/O:
+validation, persistence, audit, and event publication.
 """
 from datetime import datetime, timedelta, timezone
 
@@ -23,66 +11,11 @@ from sqlalchemy.orm import Session
 from src.repository import consent_repository as repo
 from src.services import event_publisher
 from src.services.audit_service import log_audit
-
-CONFLICT_WINDOW_HOURS = 24
-
-# Higher tier wins outside the conflict window.
-SOURCE_TIER = {
-    "PMP": 3, "pmp_portal": 3, "cookie_banner": 3, "IDP": 3,   # first-party explicit
-    "API": 2,                                                   # direct API
-    "salesforce": 1, "hubspot": 1, "outreach": 1, "highspot": 1,  # third-party sync
-}
-DEFAULT_TIER = 1
+from src.services.consent_rules import CONFLICT_WINDOW_HOURS, should_apply, tier  # noqa: F401
 
 
 class ConsentError(Exception):
     """Business-rule violation; message is safe to surface to the caller."""
-
-
-def _tier(source: str) -> int:
-    return SOURCE_TIER.get(source, SOURCE_TIER.get(source.lower(), DEFAULT_TIER))
-
-
-def _aware(dt: datetime | None) -> datetime | None:
-    if dt is None:
-        return None
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-
-
-def should_apply(existing: dict | None, new_status: str, new_source: str,
-                 now: datetime | None = None) -> tuple[bool, str]:
-    """Decide whether an incoming signal supersedes the existing consent.
-
-    Returns (apply, reason). Pure function — unit-testable without a database.
-    """
-    if existing is None:
-        return True, "no prior consent"
-
-    now = now or datetime.now(timezone.utc)
-    if existing["status"] == new_status:
-        return False, "no change"
-
-    withdrawn_at = _aware(existing.get("withdrawn_at"))
-    if existing["status"] == "withdrawn" and new_status == "granted" and withdrawn_at:
-        if now - withdrawn_at < timedelta(hours=CONFLICT_WINDOW_HOURS):
-            # Rule 1 — protect a fresh withdrawal from stale grants.
-            if _tier(new_source) < 3:
-                return False, (
-                    f"withdrawal within {CONFLICT_WINDOW_HOURS}h conflict window "
-                    f"outranks grant from '{new_source}'"
-                )
-            # A first-party explicit re-grant is a real human decision; honour it.
-            return True, "first-party explicit re-grant inside window"
-
-    # Rule 2 — tier precedence outside the window.
-    existing_tier = _tier(existing.get("source_system", ""))
-    if _tier(new_source) < existing_tier:
-        return False, (
-            f"source '{new_source}' outranked by existing '{existing.get('source_system')}'"
-        )
-
-    # Rule 3 — same or higher tier, newest wins (we are the newest by construction).
-    return True, "supersedes prior consent"
 
 
 def _expiry_for(purpose: dict) -> datetime | None:
