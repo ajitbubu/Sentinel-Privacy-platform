@@ -37,6 +37,22 @@ docker compose logs -f pmp-backend
 
 Run `make` on its own to see every available command.
 
+## Local test credentials
+
+`make admin` creates a DPO/admin account in your local dev database and
+prints its email, password, and an `otpauth://` MFA URI to your terminal —
+save those from the command output. It also prints the raw MFA secret, which
+you can feed to any TOTP generator to get a login code on demand without a
+real authenticator app:
+
+```bash
+python3 -c "import pyotp; print(pyotp.TOTP('<secret from make admin output>').now())"
+```
+
+This account only exists locally — it is not seeded automatically, is not
+shared across environments, and is wiped by `make reset`. Don't commit its
+credentials anywhere; keep them in your own notes.
+
 ## Resetting
 
 ```bash
