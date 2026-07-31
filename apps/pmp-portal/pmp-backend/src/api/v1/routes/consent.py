@@ -1,74 +1,91 @@
-"""User consent management: view, grant, withdraw, history."""
-from uuid import UUID
-
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+"""Consent endpoints for the authenticated subject."""
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from src.api.v1.middleware.auth import get_current_subject
 from src.config.database import get_db
-from src.services.consent_service import ConsentService
+from src.repository import consent_repository as repo
+from src.services import consent_service
+from src.services.consent_service import ConsentError
 
 router = APIRouter()
 
 
-class GrantConsentRequest(BaseModel):
+class GrantRequest(BaseModel):
     purpose: str
     channel: str
     legal_basis: str = "consent"
-    metadata: dict = {}
+    metadata: dict = Field(default_factory=dict)
 
 
 class WithdrawRequest(BaseModel):
     reason: str | None = None
 
 
+def _client_ip(request: Request) -> str | None:
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else None
+
+
 @router.get("")
 def list_consents(
-    status: str = "granted",
-    subject=Depends(get_current_subject),
+    status: str | None = Query(None, pattern="^(granted|pending|withdrawn|expired|revoked)$"),
+    limit: int = Query(50, le=100, ge=1),
+    offset: int = Query(0, ge=0),
+    user: dict = Depends(get_current_subject),
     db: Session = Depends(get_db),
 ):
-    return ConsentService(db).list_for_subject(subject["sub"], status=status)
-
-
-@router.post("", status_code=201)
-def grant_consent(
-    body: GrantConsentRequest,
-    subject=Depends(get_current_subject),
-    db: Session = Depends(get_db),
-):
-    return ConsentService(db).grant(
-        subject_id=subject["sub"],
-        purpose=body.purpose,
-        channel=body.channel,
-        legal_basis=body.legal_basis,
-        source_system="PMP",
-        metadata=body.metadata,
-    )
-
-
-@router.post("/{consent_id}/withdraw")
-def withdraw_consent(
-    consent_id: UUID,
-    body: WithdrawRequest,
-    subject=Depends(get_current_subject),
-    db: Session = Depends(get_db),
-):
-    result = ConsentService(db).withdraw(
-        consent_id=consent_id,
-        subject_id=subject["sub"],
-        reason=body.reason,
-    )
-    if not result:
-        raise HTTPException(status_code=404, detail="Consent not found")
-    return result
+    consents = repo.list_for_subject(db, user["sub"], status, limit, offset)
+    return {"consents": consents, "count": len(consents), "limit": limit, "offset": offset}
 
 
 @router.get("/history")
 def consent_history(
-    days: int = 30,
-    subject=Depends(get_current_subject),
+    days: int = Query(365, ge=1, le=3650),
+    limit: int = Query(200, le=500),
+    user: dict = Depends(get_current_subject),
     db: Session = Depends(get_db),
 ):
-    return ConsentService(db).history(subject["sub"], days=days)
+    return {"history": repo.history(db, user["sub"], days, limit)}
+
+
+@router.get("/{consent_id}")
+def get_consent(consent_id: str, user: dict = Depends(get_current_subject),
+                db: Session = Depends(get_db)):
+    consent = repo.get(db, consent_id, user["sub"])
+    if consent is None:
+        raise HTTPException(404, "Consent not found")
+    return consent
+
+
+@router.post("", status_code=201)
+def grant_consent(body: GrantRequest, request: Request,
+                  user: dict = Depends(get_current_subject),
+                  db: Session = Depends(get_db)):
+    try:
+        return consent_service.set_consent(
+            db, subject_id=user["sub"], purpose_ref=body.purpose,
+            channel_ref=body.channel, granted=True, source_system="PMP",
+            legal_basis=body.legal_basis, actor_id=user["sub"],
+            source_ip=_client_ip(request),
+            user_agent=request.headers.get("user-agent"),
+            metadata=body.metadata,
+        )
+    except ConsentError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/{consent_id}/withdraw")
+def withdraw_consent(consent_id: str, body: WithdrawRequest, request: Request,
+                     user: dict = Depends(get_current_subject),
+                     db: Session = Depends(get_db)):
+    try:
+        return consent_service.withdraw(
+            db, consent_id=consent_id, subject_id=user["sub"],
+            reason=body.reason, actor_id=user["sub"], source_ip=_client_ip(request),
+        )
+    except ConsentError as e:
+        raise HTTPException(400, str(e))

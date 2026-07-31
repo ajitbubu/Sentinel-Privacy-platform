@@ -1,4 +1,9 @@
 import { FormEvent, useState } from 'react'
+import { Loader2, MailCheck, ShieldCheck } from 'lucide-react'
+import {
+  Alert, AlertDescription, Button, Card, CardContent, CardDescription,
+  CardHeader, CardTitle, Input, Label,
+} from '@sentinel/ui'
 import { requestMagicLink } from '../services/auth'
 
 export default function LoginPage() {
@@ -14,60 +19,65 @@ export default function LoginPage() {
       setState('sent')
     } catch (err: unknown) {
       const status = (err as { response?: { status?: number } })?.response?.status
-      setError(status === 429 ? 'Too many requests — please wait a few minutes.' : 'Something went wrong. Please try again.')
+      setError(status === 429
+        ? 'Too many requests — please wait a few minutes.'
+        : 'Something went wrong. Please try again.')
       setState('error')
     }
   }
 
-  if (state === 'sent') {
-    return (
-      <main style={styles.wrap}>
-        <div style={styles.card}>
-          <h1 style={styles.title}>Check your email</h1>
-          <p style={styles.sub}>
-            If <strong>{email}</strong> is valid, a sign-in link is on its way.
-            It expires in 15 minutes and can be used once.
-          </p>
-          <button style={styles.linkBtn} onClick={() => setState('idle')}>
-            Use a different email
-          </button>
-        </div>
-      </main>
-    )
-  }
-
   return (
-    <main style={styles.wrap}>
-      <div style={styles.card}>
-        <h1 style={styles.title}>Privacy Preferences</h1>
-        <p style={styles.sub}>Enter your email and we'll send you a secure sign-in link. No password needed.</p>
-        <form onSubmit={onSubmit}>
-          <input
-            style={styles.input}
-            type="email"
-            required
-            autoFocus
-            placeholder="you@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-          <button style={styles.button} type="submit" disabled={state === 'sending'}>
-            {state === 'sending' ? 'Sending…' : 'Email me a sign-in link'}
-          </button>
-        </form>
-        {state === 'error' && <p style={styles.error}>{error}</p>}
-      </div>
-    </main>
+    <div className="bg-muted/40 flex min-h-screen items-center justify-center p-5">
+      <Card className="w-full max-w-md">
+        {state === 'sent' ? (
+          <>
+            <CardHeader className="items-center text-center">
+              <div className="bg-granted-subtle text-granted mb-2 flex size-11 items-center justify-center rounded-full">
+                <MailCheck className="size-5" />
+              </div>
+              <CardTitle>Check your email</CardTitle>
+              <CardDescription className="leading-relaxed">
+                If <span className="text-foreground font-medium">{email}</span> is valid, a sign-in
+                link is on its way. It expires in 15 minutes and works once.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button variant="ghost" className="w-full" onClick={() => setState('idle')}>
+                Use a different email
+              </Button>
+            </CardContent>
+          </>
+        ) : (
+          <>
+            <CardHeader>
+              <div className="text-primary mb-1 flex items-center gap-2">
+                <ShieldCheck className="size-5" />
+                <span className="text-sm font-semibold tracking-tight">Privacy Centre</span>
+              </div>
+              <CardTitle>Sign in</CardTitle>
+              <CardDescription>
+                We'll email you a secure link. No password to remember or lose.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={onSubmit} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email address</Label>
+                  <Input id="email" type="email" required autoFocus placeholder="you@example.com"
+                    value={email} onChange={(e) => setEmail(e.target.value)} />
+                </div>
+                <Button type="submit" className="w-full" disabled={state === 'sending'}>
+                  {state === 'sending' && <Loader2 className="size-4 animate-spin" />}
+                  Email me a sign-in link
+                </Button>
+                {state === 'error' && (
+                  <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
+                )}
+              </form>
+            </CardContent>
+          </>
+        )}
+      </Card>
+    </div>
   )
-}
-
-const styles: Record<string, React.CSSProperties> = {
-  wrap: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg,#667eea,#764ba2)', fontFamily: 'system-ui, sans-serif' },
-  card: { background: '#fff', borderRadius: 12, padding: '40px 36px', maxWidth: 420, width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,.3)' },
-  title: { margin: '0 0 8px', fontSize: 24, color: '#333' },
-  sub: { margin: '0 0 24px', color: '#666', lineHeight: 1.5 },
-  input: { width: '100%', padding: '12px 14px', fontSize: 16, border: '1px solid #ddd', borderRadius: 8, marginBottom: 12, boxSizing: 'border-box' },
-  button: { width: '100%', padding: '12px 14px', fontSize: 16, fontWeight: 600, color: '#fff', background: '#667eea', border: 'none', borderRadius: 8, cursor: 'pointer' },
-  linkBtn: { background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', padding: 0, fontSize: 14 },
-  error: { color: '#c0392b', marginTop: 12, fontSize: 14 },
 }

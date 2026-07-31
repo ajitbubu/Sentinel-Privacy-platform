@@ -1,54 +1,66 @@
-"""WebSocket manager - pushes Redis Pub/Sub events to connected clients."""
+"""WebSocket fan-out backed by Redis pub/sub.
+
+One Redis subscription per process (not per client) relays to every connected
+socket, so N clients cost one subscription rather than N.
+"""
 import asyncio
 import json
+import logging
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import WebSocket
 
 from src.config.settings import settings
 
-ws_router = APIRouter()
+log = logging.getLogger(__name__)
 
 
 class ConnectionManager:
-    def __init__(self):
-        self.connections: dict[str, list[WebSocket]] = {}
+    def __init__(self) -> None:
+        self._connections: dict[str, set[WebSocket]] = {}
+        self._task: asyncio.Task | None = None
 
-    async def connect(self, subject_id: str, ws: WebSocket):
+    async def connect(self, ws: WebSocket, subject_id: str) -> None:
         await ws.accept()
-        self.connections.setdefault(subject_id, []).append(ws)
+        self._connections.setdefault(subject_id, set()).add(ws)
+        if self._task is None or self._task.done():
+            self._task = asyncio.create_task(self._relay())
 
-    def disconnect(self, subject_id: str, ws: WebSocket):
-        if subject_id in self.connections:
-            self.connections[subject_id] = [c for c in self.connections[subject_id] if c != ws]
+    def disconnect(self, ws: WebSocket, subject_id: str) -> None:
+        conns = self._connections.get(subject_id)
+        if conns:
+            conns.discard(ws)
+            if not conns:
+                self._connections.pop(subject_id, None)
 
-    async def send_to_subject(self, subject_id: str, message: dict):
-        for ws in self.connections.get(subject_id, []):
-            await ws.send_json(message)
+    async def send_to(self, subject_id: str, message: dict) -> None:
+        dead = []
+        for ws in self._connections.get(subject_id, set()):
+            try:
+                await ws.send_json(message)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            self.disconnect(ws, subject_id)
+
+    async def _relay(self) -> None:
+        """Single Redis subscription relaying events to the owning subject."""
+        try:
+            client = aioredis.from_url(settings.redis_url, decode_responses=True)
+            pubsub = client.pubsub()
+            await pubsub.subscribe("channel:all")
+            async for msg in pubsub.listen():
+                if msg.get("type") != "message":
+                    continue
+                try:
+                    event = json.loads(msg["data"])
+                except (ValueError, KeyError):
+                    continue
+                subject_id = (event.get("data") or {}).get("subject_id")
+                if subject_id:
+                    await self.send_to(subject_id, event)
+        except Exception as e:
+            log.error("websocket relay stopped: %s", e)
 
 
 manager = ConnectionManager()
-
-
-@ws_router.websocket("/ws/v1")
-async def websocket_endpoint(ws: WebSocket, token: str = ""):
-    # TODO: validate JWT from token query param, extract subject_id
-    subject_id = "anonymous"
-    await manager.connect(subject_id, ws)
-    r = aioredis.from_url(settings.redis_url, decode_responses=True)
-    pubsub = r.pubsub()
-    await pubsub.subscribe("channel:consent:updated", "channel:banner:published")
-
-    async def relay():
-        async for msg in pubsub.listen():
-            if msg["type"] == "message":
-                await ws.send_json({"channel": msg["channel"], "data": json.loads(msg["data"])})
-
-    relay_task = asyncio.create_task(relay())
-    try:
-        while True:
-            await ws.receive_text()  # keepalive / subscribe commands
-    except WebSocketDisconnect:
-        manager.disconnect(subject_id, ws)
-        relay_task.cancel()
-        await pubsub.close()

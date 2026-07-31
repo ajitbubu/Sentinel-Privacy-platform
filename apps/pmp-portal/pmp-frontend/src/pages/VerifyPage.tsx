@@ -1,39 +1,49 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Loader2, TriangleAlert } from 'lucide-react'
+import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@sentinel/ui'
 import { verifyMagicLink } from '../services/auth'
 
 export default function VerifyPage() {
   const [params] = useSearchParams()
   const navigate = useNavigate()
-  const [state, setState] = useState<'verifying' | 'failed'>('verifying')
-  const ran = useRef(false)  // React 18 StrictMode double-mount guard (token is single-use)
+  const [failed, setFailed] = useState(false)
+  const ran = useRef(false) // StrictMode double-mount guard — the token is single-use
 
   useEffect(() => {
     if (ran.current) return
     ran.current = true
     const token = params.get('token')
-    if (!token) { setState('failed'); return }
+    if (!token) { setFailed(true); return }
     verifyMagicLink(token)
       .then(() => navigate('/', { replace: true }))
-      .catch(() => setState('failed'))
+      .catch(() => setFailed(true))
   }, [params, navigate])
 
   return (
-    <main style={wrap}>
-      <div style={card}>
-        {state === 'verifying' ? (
-          <p style={{ color: '#666' }}>Signing you in…</p>
-        ) : (
+    <div className="bg-muted/40 flex min-h-screen items-center justify-center p-5">
+      <Card className="w-full max-w-md">
+        {failed ? (
           <>
-            <h1 style={{ fontSize: 20, color: '#333', marginTop: 0 }}>Link invalid or expired</h1>
-            <p style={{ color: '#666' }}>Sign-in links expire after 15 minutes and work only once.</p>
-            <a href="/login" style={{ color: '#667eea' }}>Request a new link</a>
+            <CardHeader className="items-center text-center">
+              <div className="bg-pending-subtle text-pending mb-2 flex size-11 items-center justify-center rounded-full">
+                <TriangleAlert className="size-5" />
+              </div>
+              <CardTitle>This link has expired</CardTitle>
+              <CardDescription>
+                Sign-in links last 15 minutes and can only be used once.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button asChild className="w-full"><Link to="/login">Request a new link</Link></Button>
+            </CardContent>
           </>
+        ) : (
+          <CardContent className="text-muted-foreground flex items-center justify-center gap-3 py-12 text-sm">
+            <Loader2 className="size-4 animate-spin" /> Signing you in…
+          </CardContent>
         )}
-      </div>
-    </main>
+      </Card>
+    </div>
   )
 }
-
-const wrap: React.CSSProperties = { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg,#667eea,#764ba2)', fontFamily: 'system-ui, sans-serif' }
-const card: React.CSSProperties = { background: '#fff', borderRadius: 12, padding: '40px 36px', maxWidth: 420, textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,.3)' }

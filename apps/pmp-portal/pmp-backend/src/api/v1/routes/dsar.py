@@ -1,56 +1,50 @@
-"""DSAR requests - user initiated via PMP."""
-from uuid import UUID
-
+"""DSAR submission and tracking for the authenticated subject."""
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from src.api.v1.middleware.auth import get_current_subject
 from src.config.database import get_db
-from src.services.dsar_service import DSARService
+from src.services import dsar_service
+from src.services.dsar_service import DSARError
 
 router = APIRouter()
 
-VALID_TYPES = {"access", "deletion", "rectification", "export", "portability"}
-
 
 class DSARRequest(BaseModel):
-    request_type: str
-    description: str | None = None
-    preferred_format: str = "json"
+    request_type: str = Field(pattern="^(access|deletion|rectification|export|portability)$")
+    description: str | None = Field(default=None, max_length=2000)
 
 
 @router.post("/request", status_code=201)
-def submit_dsar(
-    body: DSARRequest,
-    subject=Depends(get_current_subject),
-    db: Session = Depends(get_db),
-):
-    if body.request_type not in VALID_TYPES:
-        raise HTTPException(status_code=400, detail=f"request_type must be one of {VALID_TYPES}")
-    return DSARService(db).submit(
-        subject_id=subject["sub"],
-        request_type=body.request_type,
-        description=body.description,
-        created_by_system="PMP",
-    )
-
-
-@router.get("/request/{dsar_id}")
-def dsar_status(
-    dsar_id: UUID,
-    subject=Depends(get_current_subject),
-    db: Session = Depends(get_db),
-):
-    result = DSARService(db).get_for_subject(dsar_id, subject["sub"])
-    if not result:
-        raise HTTPException(status_code=404, detail="DSAR request not found")
-    return result
+def submit(body: DSARRequest, user: dict = Depends(get_current_subject),
+           db: Session = Depends(get_db)):
+    try:
+        return dsar_service.create(
+            db, subject_id=user["sub"], request_type=body.request_type,
+            description=body.description, actor_id=user["sub"],
+        )
+    except DSARError as e:
+        raise HTTPException(409, str(e))
 
 
 @router.get("/requests")
-def list_dsars(
-    subject=Depends(get_current_subject),
-    db: Session = Depends(get_db),
-):
-    return DSARService(db).list_for_subject(subject["sub"])
+def list_requests(user: dict = Depends(get_current_subject), db: Session = Depends(get_db)):
+    return {"requests": dsar_service.list_for_subject(db, user["sub"])}
+
+
+@router.get("/request/{dsar_id}")
+def get_request(dsar_id: str, user: dict = Depends(get_current_subject),
+                db: Session = Depends(get_db)):
+    dsar = dsar_service.get(db, dsar_id, user["sub"])
+    if dsar is None:
+        raise HTTPException(404, "Request not found")
+    return dsar
+
+
+@router.post("/request/{dsar_id}/cancel")
+def cancel_request(dsar_id: str, user: dict = Depends(get_current_subject),
+                   db: Session = Depends(get_db)):
+    if not dsar_service.cancel(db, dsar_id, user["sub"]):
+        raise HTTPException(409, "Request cannot be cancelled at its current stage")
+    return {"id": dsar_id, "status": "cancelled"}
