@@ -1,5 +1,53 @@
 # Sentinel Privacy Platform
 
+Centralised consent management: a customer-facing preference portal (PMP), an
+internal DPO console (IDP), and a partner API — over one shared database.
+
+## Quick start
+
+```bash
+make up          # postgres + redis + mongo + all three APIs
+make health      # confirm all three respond
+```
+
+Then create the first DPO account and open the console:
+
+```bash
+make admin EMAIL=you@company.com NAME="Your Name"
+make web         # installs deps, runs both frontends
+```
+
+| Surface | URL |
+|---|---|
+| PMP portal (customers) | http://localhost:3001 |
+| IDP console (internal) | http://localhost:3002 |
+| PMP API docs | http://localhost:8001/docs |
+| IDP API docs | http://localhost:8002/docs |
+| Partner API docs | http://localhost:8003/docs |
+
+`make admin` prints an `otpauth://` URI — scan it in your authenticator app.
+MFA is mandatory for the `admin` and `dpo` roles, so you will need it to sign in.
+
+In development, magic-link sign-in emails are printed to the PMP backend log
+rather than sent, so no SMTP setup is needed:
+
+```bash
+docker compose logs -f pmp-backend
+```
+
+Run `make` on its own to see every available command.
+
+## Resetting
+
+```bash
+make reset       # drops all data and re-applies schema + seeds
+```
+
+
+---
+
+# Sentinel Privacy Platform
+
 Enterprise Consent Management Platform with dual-portal architecture.
 
 ## Architecture

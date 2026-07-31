@@ -39,3 +39,4 @@ Thumbs.db
 
 # scratch: git temp files the device bridge could not delete
 _to_delete/
+.gstack/

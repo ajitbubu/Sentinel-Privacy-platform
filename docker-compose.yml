@@ -1,6 +1,14 @@
+# Local development stack. Run from the repo root:
+#     docker compose up -d
+#
+# Postgres auto-applies database/schemas/postgresql/*.sql on first boot, then
+# the seed file (mounted as 900_ so it sorts after every schema migration).
+# To re-run them from scratch:  docker compose down -v && docker compose up -d
+
 services:
   postgres:
     image: postgres:16-alpine
+    container_name: sentinel-postgres
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: password
@@ -8,24 +16,27 @@ services:
     ports: ["5432:5432"]
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ../../database/schemas/postgresql:/docker-entrypoint-initdb.d
+      - ./database/schemas/postgresql:/docker-entrypoint-initdb.d
+      - ./database/seeds/seed_data.sql:/docker-entrypoint-initdb.d/900_seed_data.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U admin -d consent_db"]
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
   redis:
     image: redis:7-alpine
+    container_name: sentinel-redis
     ports: ["6379:6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   mongodb:
     image: mongo:7
+    container_name: sentinel-mongo
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
       MONGO_INITDB_ROOT_PASSWORD: password
@@ -33,58 +44,49 @@ services:
     volumes:
       - mongo_data:/data/db
 
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
-    environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=false
-      - ES_JAVA_OPTS=-Xms512m -Xmx512m
-    ports: ["9200:9200"]
-    volumes:
-      - es_data:/usr/share/elasticsearch/data
-
   pmp-backend:
-    build: ../../apps/pmp-portal/pmp-backend
+    build: ./apps/pmp-portal/pmp-backend
+    container_name: sentinel-pmp-api
     ports: ["8001:8001"]
     environment:
+      APP_ENV: development
       DATABASE_URL: postgresql://admin:password@postgres:5432/consent_db
       REDIS_URL: redis://redis:6379/0
       MONGO_URL: mongodb://admin:password@mongodb:27017/consent_db
+      SECRET_KEY: dev-only-change-me-in-every-real-environment
+      PMP_FRONTEND_URL: http://localhost:3001
+      CORS_ORIGINS: '["http://localhost:3001"]'
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
 
   idp-backend:
-    build: ../../apps/idp-console/idp-backend
+    build: ./apps/idp-console/idp-backend
+    container_name: sentinel-idp-api
     ports: ["8002:8002"]
     environment:
+      APP_ENV: development
       DATABASE_URL: postgresql://admin:password@postgres:5432/consent_db
       REDIS_URL: redis://redis:6379/0
+      MONGO_URL: mongodb://admin:password@mongodb:27017/consent_db
+      SECRET_KEY: dev-only-change-me-in-every-real-environment
+      CORS_ORIGINS: '["http://localhost:3002"]'
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
 
   external-api:
-    build: ../../apps/api/backend
+    build: ./apps/api/backend
+    container_name: sentinel-external-api
     ports: ["8003:8003"]
     environment:
+      APP_ENV: development
       DATABASE_URL: postgresql://admin:password@postgres:5432/consent_db
       REDIS_URL: redis://redis:6379/0
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
 
-  nginx:
-    image: nginx:alpine
-    ports: ["80:80"]
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - pmp-backend
-      - idp-backend
-      - external-api
-
 volumes:
   postgres_data:
   mongo_data:
-  es_data:
