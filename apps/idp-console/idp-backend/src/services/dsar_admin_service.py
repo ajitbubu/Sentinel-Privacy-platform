@@ -1,61 +1,237 @@
-"""DSAR fulfillment automation for DPO."""
+"""DSAR fulfilment: gather a subject's data and render it in all three formats."""
+import csv
+import io
 import json
-from uuid import UUID
+from datetime import datetime, timezone
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from src.services.audit_service import log_audit
 
-class DSARAdminService:
-    def __init__(self, db: Session):
-        self.db = db
+VALID_FORMATS = {"json", "csv", "pdf"}
 
-    def list(self, status: str | None = None) -> dict:
-        q = """
-            SELECT d.id, s.email AS subject_email, d.request_type, d.status,
-                   d.submitted_at, d.due_date,
-                   EXTRACT(DAY FROM d.due_date - NOW())::int AS days_remaining
-            FROM dsar_requests d JOIN subjects s ON d.subject_id = s.id
-        """
-        params = {}
-        if status:
-            q += " WHERE d.status = :status"
-            params["status"] = status
-        rows = self.db.execute(text(q + " ORDER BY d.due_date ASC"), params).mappings().all()
-        return {"requests": [dict(r) for r in rows]}
 
-    def fulfill(self, dsar_id: UUID, options: dict, actor_id: str) -> dict:
-        # Gather subject data (consents, audit, profile) -> export file -> notify subject
-        row = self.db.execute(
-            text("""
-                UPDATE dsar_requests
-                SET status = 'fulfilled', fulfilled_at = NOW(), processed_by_user_id = :actor
-                WHERE id = :did RETURNING id, status, fulfilled_at
-            """),
-            {"did": str(dsar_id), "actor": actor_id},
-        ).mappings().first()
-        self._audit(dsar_id, "fulfill", actor_id, options.get("notes"))
-        self.db.commit()
-        return {**dict(row), "message": "DSAR fulfilled; subject notified with download link"}
+class DSARAdminError(Exception):
+    pass
 
-    def deny(self, dsar_id: UUID, reason: str, explanation: str, actor_id: str) -> dict:
-        row = self.db.execute(
-            text("""
-                UPDATE dsar_requests
-                SET status = 'denied', denial_reason = :reason, processed_by_user_id = :actor
-                WHERE id = :did RETURNING id, status
-            """),
-            {"did": str(dsar_id), "reason": f"{reason}: {explanation}", "actor": actor_id},
-        ).mappings().first()
-        self._audit(dsar_id, "deny", actor_id, explanation)
-        self.db.commit()
-        return dict(row)
 
-    def _audit(self, dsar_id, action: str, actor_id: str, reason: str | None):
-        self.db.execute(
-            text("""
-                INSERT INTO audit_log (entity_type, entity_id, action, actor_type, actor_id, reason)
-                VALUES ('dsar', :eid, :action, 'user', :actor, :reason)
-            """),
-            {"eid": str(dsar_id), "action": action, "actor": actor_id, "reason": reason},
-        )
+def queue(db: Session, status: str | None = None, limit: int = 50) -> list[dict]:
+    """Pending requests, most urgent first — overdue work should be impossible to miss."""
+    rows = db.execute(
+        text("""
+            SELECT d.id, d.request_type, d.status, d.description, d.submitted_at,
+                   d.due_date, d.fulfilled_at, d.denial_reason,
+                   s.email AS subject_email, s.id AS subject_id,
+                   GREATEST(0, EXTRACT(DAY FROM d.due_date - NOW())::int) AS days_remaining,
+                   (d.due_date < NOW() AND d.status NOT IN
+                     ('fulfilled','denied','cancelled')) AS is_overdue
+            FROM dsar_requests d
+            JOIN subjects s ON s.id = d.subject_id
+            WHERE (:status IS NULL OR d.status = :status)
+            ORDER BY
+              (d.status IN ('fulfilled','denied','cancelled')) ASC,
+              d.due_date ASC
+            LIMIT :limit
+        """),
+        {"status": status, "limit": limit},
+    ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def collect_subject_data(db: Session, subject_id: str) -> dict:
+    """Everything held about a subject. This IS the Art. 15 response."""
+    subject = db.execute(
+        text("""SELECT id, email, first_name, last_name, country_code, language,
+                       status, created_at, last_activity
+                FROM subjects WHERE id = :sid"""),
+        {"sid": subject_id},
+    ).mappings().first()
+    if subject is None:
+        raise DSARAdminError("Subject not found")
+
+    consents = db.execute(
+        text("""
+            SELECT c.id, p.name AS purpose, ch.name AS channel, c.status, c.legal_basis,
+                   c.created_at, c.granted_at, c.withdrawn_at, c.expires_at, c.source_system
+            FROM consents c
+            JOIN purposes p ON c.purpose_id = p.id
+            JOIN channels ch ON c.channel_id = ch.id
+            WHERE c.subject_id = :sid AND c.deleted_at IS NULL
+            ORDER BY c.created_at DESC
+        """),
+        {"sid": subject_id},
+    ).mappings().all()
+
+    audit = db.execute(
+        text("""
+            SELECT a.created_at, a.action, a.entity_type, a.actor_type, a.reason
+            FROM audit_log a
+            WHERE a.entity_id IN (
+                SELECT id::text FROM consents WHERE subject_id = :sid
+                UNION SELECT id::text FROM dsar_requests WHERE subject_id = :sid
+                UNION SELECT :sid
+            )
+            ORDER BY a.created_at DESC LIMIT 1000
+        """),
+        {"sid": subject_id},
+    ).mappings().all()
+
+    requests = db.execute(
+        text("""SELECT id, request_type, status, submitted_at, due_date, fulfilled_at
+                FROM dsar_requests WHERE subject_id = :sid ORDER BY submitted_at DESC"""),
+        {"sid": subject_id},
+    ).mappings().all()
+
+    return {
+        "export_generated_at": datetime.now(timezone.utc).isoformat(),
+        "subject": dict(subject),
+        "consents": [dict(r) for r in consents],
+        "audit_trail": [dict(r) for r in audit],
+        "data_requests": [dict(r) for r in requests],
+        "notes": (
+            "This export contains all personal data held about you. Records proving "
+            "consent withdrawal are retained where required by law even after deletion; "
+            "these are listed in the audit trail."
+        ),
+    }
+
+
+def render_json(data: dict) -> bytes:
+    return json.dumps(data, indent=2, default=str).encode()
+
+
+def render_csv(data: dict) -> bytes:
+    """Flat CSV with a section column — one file, readable in any spreadsheet."""
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["section", "field", "value"])
+    for key, value in data["subject"].items():
+        writer.writerow(["subject", key, value])
+    for i, consent in enumerate(data["consents"]):
+        for key, value in consent.items():
+            writer.writerow([f"consent[{i}]", key, value])
+    for i, entry in enumerate(data["audit_trail"]):
+        for key, value in entry.items():
+            writer.writerow([f"audit[{i}]", key, value])
+    for i, req in enumerate(data["data_requests"]):
+        for key, value in req.items():
+            writer.writerow([f"request[{i}]", key, value])
+    return buf.getvalue().encode()
+
+
+def render_pdf(data: dict) -> bytes:
+    """Human-readable PDF. reportlab is the only hard dependency here."""
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import (PageBreak, Paragraph, SimpleDocTemplate,
+                                        Spacer, Table, TableStyle)
+    except ImportError:
+        raise DSARAdminError("PDF export requires reportlab (pip install reportlab)")
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=20 * mm, bottomMargin=18 * mm)
+    styles = getSampleStyleSheet()
+    h1 = ParagraphStyle("h1", parent=styles["Heading1"], fontSize=18,
+                        textColor=colors.HexColor("#2f62d8"), spaceAfter=6)
+    body = ParagraphStyle("body", parent=styles["Normal"], fontSize=9.5, leading=14)
+    story = []
+
+    story.append(Paragraph("Personal Data Export", h1))
+    story.append(Paragraph(
+        f"Generated {data['export_generated_at']} · "
+        f"Subject: {data['subject'].get('email', '')}", body))
+    story.append(Spacer(1, 8))
+    story.append(Paragraph(data["notes"], body))
+    story.append(Spacer(1, 14))
+
+    def table(title: str, rows: list[list], widths: list[float]) -> None:
+        story.append(Paragraph(title, styles["Heading2"]))
+        t = Table(rows, colWidths=widths, repeatRows=1)
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2f62d8")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#d4d4d8")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#fafafa")]),
+        ]))
+        story.append(t)
+        story.append(Spacer(1, 14))
+
+    table("Your details",
+          [["Field", "Value"]] + [[k, str(v)] for k, v in data["subject"].items()],
+          [55 * mm, 110 * mm])
+
+    if data["consents"]:
+        rows = [["Purpose", "Channel", "Status", "Basis", "Source", "Updated"]]
+        for c in data["consents"]:
+            rows.append([c["purpose"], c["channel"], c["status"], c["legal_basis"],
+                         c.get("source_system") or "—",
+                         str(c.get("granted_at") or c.get("withdrawn_at") or "")[:19]])
+        table("Your consents", rows, [32 * mm, 26 * mm, 24 * mm, 26 * mm, 26 * mm, 31 * mm])
+
+    if data["audit_trail"]:
+        story.append(PageBreak())
+        rows = [["When", "Action", "Type", "Actor"]]
+        for a in data["audit_trail"][:250]:
+            rows.append([str(a["created_at"])[:19], a["action"], a["entity_type"], a["actor_type"]])
+        table("Change history", rows, [42 * mm, 42 * mm, 38 * mm, 43 * mm])
+
+    doc.build(story)
+    return buf.getvalue()
+
+
+RENDERERS = {"json": render_json, "csv": render_csv, "pdf": render_pdf}
+
+
+def fulfil(db: Session, dsar_id: str, user_id: str, fmt: str = "json") -> tuple[bytes, str, str]:
+    if fmt not in VALID_FORMATS:
+        raise DSARAdminError(f"format must be one of {sorted(VALID_FORMATS)}")
+
+    row = db.execute(
+        text("SELECT subject_id, request_type, status FROM dsar_requests WHERE id = :did"),
+        {"did": dsar_id},
+    ).mappings().first()
+    if row is None:
+        raise DSARAdminError("Request not found")
+    if row["status"] in ("fulfilled", "denied", "cancelled"):
+        raise DSARAdminError(f"Request is already {row['status']}")
+
+    data = collect_subject_data(db, str(row["subject_id"]))
+    content = RENDERERS[fmt](data)
+
+    db.execute(
+        text("""UPDATE dsar_requests
+                SET status = 'fulfilled', fulfilled_at = NOW(),
+                    response_method = :fmt, processed_by_user_id = :uid,
+                    response_download_expires_at = NOW() + INTERVAL '7 days'
+                WHERE id = :did"""),
+        {"did": dsar_id, "fmt": fmt, "uid": user_id},
+    )
+    db.commit()
+
+    log_audit(db, entity_type="dsar", entity_id=dsar_id, action="fulfil",
+              actor_id=user_id, new_values={"format": fmt, "records": len(data["consents"])})
+
+    media = {"json": "application/json", "csv": "text/csv", "pdf": "application/pdf"}[fmt]
+    return content, media, f"data-export-{dsar_id[:8]}.{fmt}"
+
+
+def deny(db: Session, dsar_id: str, user_id: str, reason: str) -> dict:
+    updated = db.execute(
+        text("""UPDATE dsar_requests
+                SET status = 'denied', denial_reason = :reason, processed_by_user_id = :uid
+                WHERE id = :did AND status NOT IN ('fulfilled','denied','cancelled')
+                RETURNING id"""),
+        {"did": dsar_id, "reason": reason, "uid": user_id},
+    ).scalar()
+    if not updated:
+        raise DSARAdminError("Request not found or already closed")
+    db.commit()
+    log_audit(db, entity_type="dsar", entity_id=dsar_id, action="deny",
+              actor_id=user_id, reason=reason)
+    return {"id": dsar_id, "status": "denied", "reason": reason}

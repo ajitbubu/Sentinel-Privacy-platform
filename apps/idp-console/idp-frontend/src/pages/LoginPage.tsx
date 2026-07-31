@@ -1,6 +1,11 @@
 import { FormEvent, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { login, MfaRequired } from '../services/auth'
+import { Loader2, ShieldCheck } from 'lucide-react'
+import {
+  Alert, AlertDescription, Badge, Button, Card, CardContent, CardDescription,
+  CardHeader, CardTitle, Input, Label,
+} from '@sentinel/ui'
+import { MfaRequired, login } from '../services/auth'
 
 export default function LoginPage() {
   const navigate = useNavigate()
@@ -13,95 +18,80 @@ export default function LoginPage() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
-    setBusy(true)
-    setError('')
+    setBusy(true); setError('')
     try {
       await login(email, password, needsMfa ? mfaCode : undefined)
       navigate('/', { replace: true })
     } catch (err: unknown) {
-      if (err instanceof MfaRequired) {
-        setNeedsMfa(true)
-        setError('')
-      } else {
+      if (err instanceof MfaRequired) { setNeedsMfa(true); setError('') }
+      else {
         const res = (err as { response?: { status?: number; data?: { detail?: unknown } } }).response
         const detail = res?.data?.detail
-        setError(
-          res?.status === 423
-            ? String(detail)
-            : typeof detail === 'string'
-              ? detail
-              : 'Sign-in failed. Check your credentials.',
-        )
+        setError(res?.status === 423 ? String(detail)
+          : typeof detail === 'string' ? detail
+          : 'Sign-in failed. Check your credentials.')
         setMfaCode('')
       }
-    } finally {
-      setBusy(false)
-    }
+    } finally { setBusy(false) }
   }
 
   return (
-    <main style={s.wrap}>
-      <form style={s.card} onSubmit={onSubmit}>
-        <div style={s.badge}>INTERNAL</div>
-        <h1 style={s.title}>IDP Console</h1>
-        <p style={s.sub}>Data Protection Officer &amp; administration</p>
+    <div className="bg-muted/40 flex min-h-screen items-center justify-center p-5">
+      <Card className="w-full max-w-sm">
+        <CardHeader>
+          <div className="mb-1 flex items-center gap-2">
+            <ShieldCheck className="text-primary size-5" />
+            <span className="font-semibold tracking-tight">Sentinel</span>
+            <Badge variant="secondary" className="ml-auto text-[10px]">Internal</Badge>
+          </div>
+          <CardTitle>{needsMfa ? 'Two-factor authentication' : 'Console sign-in'}</CardTitle>
+          <CardDescription>
+            {needsMfa
+              ? 'Enter the six-digit code from your authenticator app.'
+              : 'Data protection officer and administration access.'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={onSubmit} className="space-y-4">
+            {!needsMfa ? (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email</Label>
+                  <Input id="email" type="email" required autoFocus value={email}
+                    onChange={(e) => setEmail(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <Input id="password" type="password" required value={password}
+                    onChange={(e) => setPassword(e.target.value)} />
+                </div>
+              </>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="mfa">Authenticator code</Label>
+                <Input id="mfa" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} required autoFocus
+                  placeholder="000000" value={mfaCode}
+                  className="text-center font-mono text-lg tracking-[0.4em]"
+                  onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ''))} />
+              </div>
+            )}
 
-        <label style={s.label}>Email</label>
-        <input
-          style={s.input} type="email" required autoFocus value={email}
-          disabled={needsMfa}
-          onChange={(e) => setEmail(e.target.value)}
-        />
+            <Button type="submit" className="w-full" disabled={busy}>
+              {busy && <Loader2 className="size-4 animate-spin" />}
+              {needsMfa ? 'Verify' : 'Sign in'}
+            </Button>
 
-        <label style={s.label}>Password</label>
-        <input
-          style={s.input} type="password" required value={password}
-          disabled={needsMfa}
-          onChange={(e) => setPassword(e.target.value)}
-        />
+            {needsMfa && (
+              <Button type="button" variant="ghost" className="w-full"
+                onClick={() => { setNeedsMfa(false); setMfaCode(''); setError('') }}>
+                Back
+              </Button>
+            )}
 
-        {needsMfa && (
-          <>
-            <label style={s.label}>Authenticator code</label>
-            <input
-              style={{ ...s.input, letterSpacing: 8, fontSize: 20, textAlign: 'center' }}
-              inputMode="numeric" pattern="[0-9]{6}" maxLength={6} required autoFocus
-              placeholder="000000" value={mfaCode}
-              onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ''))}
-            />
-            <p style={s.hint}>Six-digit code from your authenticator app.</p>
-          </>
-        )}
-
-        <button style={s.button} type="submit" disabled={busy}>
-          {busy ? 'Verifying…' : needsMfa ? 'Verify code' : 'Sign in'}
-        </button>
-
-        {needsMfa && (
-          <button
-            type="button" style={s.linkBtn}
-            onClick={() => { setNeedsMfa(false); setMfaCode(''); setError('') }}
-          >
-            Back
-          </button>
-        )}
-
-        {error && <p style={s.error}>{error}</p>}
-      </form>
-    </main>
+            {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+          </form>
+        </CardContent>
+      </Card>
+    </div>
   )
-}
-
-const s: Record<string, React.CSSProperties> = {
-  wrap: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#1a1a2e', fontFamily: 'system-ui, sans-serif' },
-  card: { background: '#fff', borderRadius: 12, padding: '36px 34px', width: 400, boxShadow: '0 20px 60px rgba(0,0,0,.4)' },
-  badge: { display: 'inline-block', fontSize: 11, fontWeight: 700, letterSpacing: 1, color: '#764ba2', background: '#f3f0fa', padding: '4px 8px', borderRadius: 4, marginBottom: 12 },
-  title: { margin: '0 0 4px', fontSize: 24, color: '#222' },
-  sub: { margin: '0 0 24px', color: '#666', fontSize: 14 },
-  label: { display: 'block', fontSize: 13, fontWeight: 600, color: '#444', marginBottom: 6 },
-  input: { width: '100%', padding: '11px 13px', fontSize: 15, border: '1px solid #ddd', borderRadius: 8, marginBottom: 16, boxSizing: 'border-box' },
-  hint: { fontSize: 12, color: '#888', marginTop: -10, marginBottom: 16 },
-  button: { width: '100%', padding: '12px', fontSize: 15, fontWeight: 600, color: '#fff', background: '#764ba2', border: 'none', borderRadius: 8, cursor: 'pointer' },
-  linkBtn: { width: '100%', marginTop: 10, background: 'none', border: 'none', color: '#764ba2', cursor: 'pointer', fontSize: 14 },
-  error: { color: '#c0392b', marginTop: 14, marginBottom: 0, fontSize: 14 },
 }

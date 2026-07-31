@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.v1.routes import (auth, banner, consent_admin, dsar_admin, audit,
-                               webhook, api_keys, health)
+                               webhook, api_keys, analytics, health)
 from src.config.settings import settings
 
 app = FastAPI(
@@ -28,3 +28,4 @@ app.include_router(dsar_admin.router, prefix="/api/v1/admin/dsar", tags=["dsar-a
 app.include_router(audit.router, prefix="/api/v1/admin/audit", tags=["audit"])
 app.include_router(webhook.router, prefix="/api/v1/admin/webhook", tags=["webhook"])
 app.include_router(api_keys.router, prefix="/api/v1/admin/api-keys", tags=["api-keys"])
+app.include_router(analytics.router, prefix="/api/v1/admin/analytics", tags=["analytics"])

@@ -7,9 +7,12 @@
    SENTINEL DESIGN SYSTEM
    Privacy platform theme — trust, clarity, calm authority.
 
-   Primary is a deep teal rather than the default SaaS blue:
-   distinct, trustworthy, and it reads as "safe" without the
-   medical/eco connotations of green.
+   Primary is a deep, slightly cool blue — the colour most
+   strongly associated with trust and security. Chroma is kept
+   high enough to feel deliberate rather than default-Bootstrap.
+
+   Info is pushed toward cyan so it stays distinguishable from
+   primary; adjacent hues would make notices read as brand chrome.
 
    CONSENT SEMANTICS (important):
    granted   -> emerald   (positive, active)
@@ -34,8 +37,8 @@
   --popover-foreground: oklch(0.22 0.015 245);
 
   /* Brand */
-  --primary: oklch(0.55 0.112 192);
-  --primary-foreground: oklch(0.99 0.005 190);
+  --primary: oklch(0.545 0.17 258);
+  --primary-foreground: oklch(0.99 0.008 258);
 
   --secondary: oklch(0.965 0.005 240);
   --secondary-foreground: oklch(0.30 0.018 245);
@@ -43,8 +46,8 @@
   --muted: oklch(0.965 0.005 240);
   --muted-foreground: oklch(0.53 0.016 245);
 
-  --accent: oklch(0.955 0.018 192);
-  --accent-foreground: oklch(0.36 0.06 195);
+  --accent: oklch(0.955 0.025 258);
+  --accent-foreground: oklch(0.36 0.10 258);
 
   /* Genuine danger only — irreversible deletion, security failure */
   --destructive: oklch(0.577 0.213 27);
@@ -52,7 +55,7 @@
 
   --border: oklch(0.915 0.006 245);
   --input: oklch(0.915 0.006 245);
-  --ring: oklch(0.55 0.112 192);
+  --ring: oklch(0.545 0.17 258);
 
   /* Consent state semantics */
   --granted: oklch(0.62 0.135 156);
@@ -67,25 +70,46 @@
   --withdrawn-foreground: oklch(0.99 0.01 16);
   --withdrawn-subtle: oklch(0.962 0.022 16);
 
-  --info: oklch(0.60 0.115 245);
-  --info-subtle: oklch(0.96 0.025 245);
+  --info: oklch(0.58 0.10 225);
+  --info-subtle: oklch(0.958 0.028 225);
 
   /* Charts — sequential, distinguishable, colourblind-safe ordering */
-  --chart-1: oklch(0.55 0.112 192);
+  --chart-1: oklch(0.545 0.17 258);
   --chart-2: oklch(0.62 0.135 156);
   --chart-3: oklch(0.66 0.13 75);
   --chart-4: oklch(0.55 0.14 285);
   --chart-5: oklch(0.615 0.125 16);
 
+  /* Charts — validated with scripts/validate_palette.js, NOT eyeballed.
+     The badge emerald/rose pair collapses to deltaE 0.3 under deuteranopia:
+     literally identical to ~8% of men. Since granted-vs-withdrawn is the most
+     important distinction in the product, the CHART pair is re-stepped for
+     lightness separation (CVD destroys hue, preserves lightness) -> deltaE 24.7.
+     Badges keep the softer hues because they always ship with a text label,
+     so identity there is never carried by colour alone.
+     Light-mode chart-granted sits at 2.47:1 on the surface, below the 3:1 bar —
+     the mandated relief is direct labels + legend + table view, all shipped. */
+  --chart-granted: oklch(0.70 0.15 156);
+  --chart-withdrawn: oklch(0.44 0.16 18);
+
+  /* Magnitude (counts by purpose/source) is sequential, not categorical:
+     one hue, light->dark. Colouring bars by rank is an anti-pattern. */
+  --chart-seq-1: oklch(0.72 0.17 258);
+  --chart-seq-2: oklch(0.63 0.17 258);
+  --chart-seq-3: oklch(0.545 0.17 258);
+  --chart-seq-4: oklch(0.46 0.17 258);
+
+  --chart-grid: oklch(0.92 0.005 245);
+
   /* Sidebar (IDP console) */
   --sidebar: oklch(0.985 0.004 245);
   --sidebar-foreground: oklch(0.30 0.015 245);
-  --sidebar-primary: oklch(0.55 0.112 192);
-  --sidebar-primary-foreground: oklch(0.99 0.005 190);
-  --sidebar-accent: oklch(0.95 0.012 192);
-  --sidebar-accent-foreground: oklch(0.34 0.05 195);
+  --sidebar-primary: oklch(0.545 0.17 258);
+  --sidebar-primary-foreground: oklch(0.99 0.008 258);
+  --sidebar-accent: oklch(0.95 0.022 258);
+  --sidebar-accent-foreground: oklch(0.34 0.09 258);
   --sidebar-border: oklch(0.915 0.006 245);
-  --sidebar-ring: oklch(0.55 0.112 192);
+  --sidebar-ring: oklch(0.545 0.17 258);
 }
 
 .dark {
@@ -96,8 +120,8 @@
   --popover: oklch(0.212 0.014 248);
   --popover-foreground: oklch(0.96 0.003 240);
 
-  --primary: oklch(0.70 0.128 190);
-  --primary-foreground: oklch(0.18 0.03 195);
+  --primary: oklch(0.70 0.155 256);
+  --primary-foreground: oklch(0.17 0.05 258);
 
   --secondary: oklch(0.262 0.015 248);
   --secondary-foreground: oklch(0.94 0.004 240);
@@ -105,15 +129,15 @@
   --muted: oklch(0.262 0.015 248);
   --muted-foreground: oklch(0.68 0.014 245);
 
-  --accent: oklch(0.30 0.035 195);
-  --accent-foreground: oklch(0.90 0.04 190);
+  --accent: oklch(0.31 0.06 258);
+  --accent-foreground: oklch(0.90 0.07 258);
 
   --destructive: oklch(0.62 0.20 25);
   --destructive-foreground: oklch(0.98 0.01 20);
 
   --border: oklch(0.29 0.014 248);
   --input: oklch(0.30 0.014 248);
-  --ring: oklch(0.70 0.128 190);
+  --ring: oklch(0.70 0.155 256);
 
   --granted: oklch(0.70 0.14 157);
   --granted-foreground: oklch(0.17 0.03 157);
@@ -127,23 +151,33 @@
   --withdrawn-foreground: oklch(0.18 0.03 18);
   --withdrawn-subtle: oklch(0.29 0.045 18);
 
-  --info: oklch(0.68 0.12 245);
-  --info-subtle: oklch(0.28 0.045 245);
+  --info: oklch(0.66 0.10 222);
+  --info-subtle: oklch(0.28 0.05 222);
 
-  --chart-1: oklch(0.70 0.128 190);
+  --chart-1: oklch(0.70 0.155 256);
   --chart-2: oklch(0.70 0.14 157);
   --chart-3: oklch(0.75 0.13 78);
   --chart-4: oklch(0.66 0.14 285);
   --chart-5: oklch(0.68 0.13 18);
 
+  /* Re-stepped for the dark card surface — a flip of the light values fails
+     the lightness band. Validated independently: deltaE 10.3 deutan, 3:1+ contrast. */
+  --chart-granted: oklch(0.67 0.16 157);
+  --chart-withdrawn: oklch(0.555 0.17 18);
+  --chart-seq-1: oklch(0.78 0.15 256);
+  --chart-seq-2: oklch(0.70 0.155 256);
+  --chart-seq-3: oklch(0.62 0.16 256);
+  --chart-seq-4: oklch(0.54 0.16 256);
+  --chart-grid: oklch(0.30 0.012 248);
+
   --sidebar: oklch(0.198 0.013 248);
   --sidebar-foreground: oklch(0.90 0.004 240);
-  --sidebar-primary: oklch(0.70 0.128 190);
-  --sidebar-primary-foreground: oklch(0.18 0.03 195);
-  --sidebar-accent: oklch(0.28 0.03 195);
-  --sidebar-accent-foreground: oklch(0.90 0.04 190);
+  --sidebar-primary: oklch(0.70 0.155 256);
+  --sidebar-primary-foreground: oklch(0.17 0.05 258);
+  --sidebar-accent: oklch(0.29 0.055 258);
+  --sidebar-accent-foreground: oklch(0.90 0.07 258);
   --sidebar-border: oklch(0.28 0.014 248);
-  --sidebar-ring: oklch(0.70 0.128 190);
+  --sidebar-ring: oklch(0.70 0.155 256);
 }
 
 @theme inline {
@@ -187,6 +221,13 @@
   --color-info: var(--info);
   --color-info-subtle: var(--info-subtle);
 
+  --color-chart-granted: var(--chart-granted);
+  --color-chart-withdrawn: var(--chart-withdrawn);
+  --color-chart-seq-1: var(--chart-seq-1);
+  --color-chart-seq-2: var(--chart-seq-2);
+  --color-chart-seq-3: var(--chart-seq-3);
+  --color-chart-seq-4: var(--chart-seq-4);
+  --color-chart-grid: var(--chart-grid);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);

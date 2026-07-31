@@ -13,3 +13,4 @@ alembic==1.13.0
 python-multipart==0.0.9
 websockets==12.0
 pyotp==2.9.0
+reportlab==4.2.0
