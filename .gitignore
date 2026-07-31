@@ -40,3 +40,6 @@ Thumbs.db
 # scratch: git temp files the device bridge could not delete
 _to_delete/
 .gstack/
+
+# local scratch notes, never meant for the repo
+credential.md
