@@ -27,6 +27,30 @@ from datetime import datetime, timedelta, timezone
 
 CONFLICT_WINDOW_HOURS = 24
 
+# Consent Register mode key: P physical, D digital,
+# T thumb impression with witness attestation.
+CAPTURE_MODES = {"digital", "physical", "thumb_impression_witnessed"}
+
+
+class EvidenceError(Exception):
+    """Evidence rule violation. Message is safe to surface to the caller."""
+
+
+def validate_evidence(capture_mode: str, witness_name: str | None) -> None:
+    """A thumb impression is only evidence if the attesting witness is named.
+
+    Pure, so it can be tested without a database. Also enforced by a CHECK
+    constraint on `consents` — the UI is not a security boundary and neither
+    is any single application layer; this is the one that produces a usable
+    error message.
+    """
+    if capture_mode not in CAPTURE_MODES:
+        raise EvidenceError(f"capture_mode must be one of {sorted(CAPTURE_MODES)}")
+    if capture_mode == "thumb_impression_witnessed" and not (witness_name or "").strip():
+        raise EvidenceError(
+            "A witness name is required when consent is captured by thumb impression."
+        )
+
 # Higher tier wins outside the conflict window.
 SOURCE_TIER = {
     "PMP": 3, "pmp_portal": 3, "cookie_banner": 3, "IDP": 3,      # first-party explicit

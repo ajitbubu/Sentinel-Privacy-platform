@@ -22,6 +22,7 @@ class Preference(BaseModel):
 class UpdateRequest(BaseModel):
     preferences: list[Preference] = Field(min_length=1, max_length=100)
     reason: str | None = None
+    language_version: str | None = Field(default=None, max_length=35)
 
 
 @router.get("")
@@ -68,4 +69,5 @@ def update_preferences(body: UpdateRequest, request: Request,
         preferences=[p.model_dump() for p in body.preferences],
         source_system="PMP", actor_id=user["sub"], source_ip=ip,
         user_agent=request.headers.get("user-agent"), reason=body.reason,
+        language_version=body.language_version,
     )

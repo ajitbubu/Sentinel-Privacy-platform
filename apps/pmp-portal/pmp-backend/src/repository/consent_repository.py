@@ -12,12 +12,15 @@ def list_for_subject(db: Session, subject_id: str, status: str | None = None,
         text("""
             SELECT c.id, c.status, c.legal_basis, c.created_at, c.granted_at,
                    c.withdrawn_at, c.expires_at, c.source_system, c.metadata,
+                   c.banner_version_id, c.language_version, c.capture_mode,
+                   c.witness_name, c.cross_border, bv.version AS notice_version,
                    p.id AS purpose_id, p.name AS purpose, p.slug AS purpose_slug,
                    p.description AS purpose_description, p.is_mandatory,
                    ch.id AS channel_id, ch.name AS channel, ch.type AS channel_type
             FROM consents c
             JOIN purposes p  ON c.purpose_id = p.id
             JOIN channels ch ON c.channel_id = ch.id
+            LEFT JOIN banner_versions bv ON bv.id = c.banner_version_id
             WHERE c.subject_id = CAST(:sid AS UUID)
               AND c.deleted_at IS NULL
               AND (:status IS NULL OR c.status = :status)
@@ -63,19 +66,25 @@ def find_active(db: Session, subject_id: str, purpose_id: str, channel_id: str) 
 def insert(db: Session, *, subject_id: str, purpose_id: str, channel_id: str,
            status: str, legal_basis: str, source_system: str,
            source_ip: str | None = None, user_agent: str | None = None,
-           expires_at: Any = None, metadata: dict | None = None) -> str:
+           expires_at: Any = None, metadata: dict | None = None,
+           banner_version_id: str | None = None, language_version: str | None = None,
+           capture_mode: str = "digital", witness_name: str | None = None,
+           cross_border: bool = False) -> str:
     consent_id = db.execute(
         text("""
             INSERT INTO consents (subject_id, purpose_id, channel_id, status, legal_basis,
                                   is_active, granted_at, withdrawn_at, expires_at,
                                   source_system, source_ip_address, user_agent,
-                                  created_by_system, metadata)
+                                  created_by_system, metadata,
+                                  banner_version_id, language_version, capture_mode,
+                                  witness_name, cross_border)
             VALUES (:sid, :pid, :chid, :status, :basis,
                     :is_active,
                     CASE WHEN :status = 'granted'   THEN NOW() END,
                     CASE WHEN :status = 'withdrawn' THEN NOW() END,
                     :expires,
-                    :source, CAST(:ip AS INET), :ua, :source, CAST(:meta AS JSONB))
+                    :source, CAST(:ip AS INET), :ua, :source, CAST(:meta AS JSONB),
+                    CAST(:bvid AS UUID), :lang, :mode, :witness, :xborder)
             RETURNING id
         """),
         {
@@ -84,6 +93,8 @@ def insert(db: Session, *, subject_id: str, purpose_id: str, channel_id: str,
             "is_active": status == "granted", "expires": expires_at,
             "source": source_system, "ip": source_ip, "ua": user_agent,
             "meta": json.dumps(metadata or {}),
+            "bvid": banner_version_id, "lang": language_version,
+            "mode": capture_mode, "witness": witness_name, "xborder": cross_border,
         },
     ).scalar()
     return str(consent_id)
@@ -144,9 +155,11 @@ def history(db: Session, subject_id: str, days: int = 365, limit: int = 200) -> 
         text("""
             SELECT a.id, a.action, a.created_at, a.reason, a.actor_type, a.actor_id,
                    a.old_values, a.new_values,
-                   p.name AS purpose, ch.name AS channel, c.source_system
+                   p.name AS purpose, ch.name AS channel, c.source_system,
+                   c.language_version, c.capture_mode, bv.version AS notice_version
             FROM audit_log a
             JOIN consents c  ON c.id = a.entity_id
+            LEFT JOIN banner_versions bv ON bv.id = c.banner_version_id
             JOIN purposes p  ON c.purpose_id = p.id
             JOIN channels ch ON c.channel_id = ch.id
             WHERE a.entity_type = 'consent'
@@ -158,6 +171,29 @@ def history(db: Session, subject_id: str, days: int = 365, limit: int = 200) -> 
         {"sid": subject_id, "days": days, "limit": limit},
     ).mappings().all()
     return [dict(r) for r in rows]
+
+
+def current_notice_version(db: Session, banner_type: str = "consent") -> dict | None:
+    """The live notice a subject would have been shown right now.
+
+    Returned so the write path can stamp evidence automatically. If nothing is
+    published this is None, and the consent is recorded without a notice
+    reference — which is the honest representation of "no notice was live",
+    not something to invent a value for.
+    """
+    row = db.execute(
+        text("""
+            SELECT v.id AS banner_version_id, v.version, b.id AS banner_id, b.slug, b.name
+            FROM banner_versions v
+            JOIN banners b ON b.id = v.banner_id
+            WHERE b.type = :btype AND b.status = 'published' AND b.is_active = TRUE
+              AND v.is_current = TRUE
+            ORDER BY b.published_at DESC NULLS LAST
+            LIMIT 1
+        """),
+        {"btype": banner_type},
+    ).mappings().first()
+    return dict(row) if row else None
 
 
 def resolve_purpose(db: Session, slug_or_id: str) -> dict | None:

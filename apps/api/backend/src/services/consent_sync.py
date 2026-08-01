@@ -74,6 +74,15 @@ def apply(db: Session, *, subject_id: str, signal: ConsentSignal) -> dict:
         return {"applied": False, "reason": reason,
                 "consent_id": str(existing["id"]) if existing else None}
 
+    # Partner-submitted consent gets the same evidence stamp as first-party
+    # capture. A consent arriving from Salesforce still has to be provable.
+    notice = db.execute(
+        text("""SELECT v.id FROM banner_versions v JOIN banners b ON b.id = v.banner_id
+                WHERE b.type = 'consent' AND b.status = 'published'
+                  AND b.is_active = TRUE AND v.is_current = TRUE
+                ORDER BY b.published_at DESC NULLS LAST LIMIT 1""")
+    ).scalar()
+
     if existing:
         consent_id = db.execute(
             text("""UPDATE consents SET status = :st, is_active = (:st = 'granted'),
@@ -87,14 +96,15 @@ def apply(db: Session, *, subject_id: str, signal: ConsentSignal) -> dict:
         consent_id = db.execute(
             text("""INSERT INTO consents (subject_id, purpose_id, channel_id, status,
                                           legal_basis, is_active, granted_at, withdrawn_at,
-                                          source_system, created_by_system)
+                                          source_system, created_by_system,
+                                          banner_version_id, capture_mode)
                     VALUES (:sid, :pid, :chid, :st, 'consent', (:st = 'granted'),
                             CASE WHEN :st = 'granted'   THEN NOW() END,
                             CASE WHEN :st = 'withdrawn' THEN NOW() END,
-                            :src, :src)
+                            :src, :src, :bvid, 'digital')
                     RETURNING id"""),
             {"sid": subject_id, "pid": purpose_id, "chid": channel_id,
-             "st": new_status, "src": signal.source_system},
+             "st": new_status, "src": signal.source_system, "bvid": notice},
         ).scalar()
     db.commit()
 

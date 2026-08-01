@@ -11,11 +11,22 @@ from sqlalchemy.orm import Session
 from src.repository import consent_repository as repo
 from src.services import event_publisher
 from src.services.audit_service import log_audit
-from src.services.consent_rules import CONFLICT_WINDOW_HOURS, should_apply, tier  # noqa: F401
+from src.services.consent_rules import (  # noqa: F401
+    CAPTURE_MODES, CONFLICT_WINDOW_HOURS, EvidenceError, should_apply, tier,
+    validate_evidence as _validate_evidence,
+)
 
 
 class ConsentError(Exception):
     """Business-rule violation; message is safe to surface to the caller."""
+
+
+def validate_evidence(capture_mode: str, witness_name: str | None) -> None:
+    """Adapter over the pure rule so callers see one exception type."""
+    try:
+        _validate_evidence(capture_mode, witness_name)
+    except EvidenceError as e:
+        raise ConsentError(str(e)) from e
 
 
 def _expiry_for(purpose: dict) -> datetime | None:
@@ -27,8 +38,17 @@ def set_consent(db: Session, *, subject_id: str, purpose_ref: str, channel_ref: 
                 granted: bool, source_system: str = "PMP", legal_basis: str = "consent",
                 actor_id: str | None = None, source_ip: str | None = None,
                 user_agent: str | None = None, reason: str | None = None,
-                metadata: dict | None = None) -> dict:
-    """Grant or withdraw consent. Idempotent, audited, and event-publishing."""
+                metadata: dict | None = None, language_version: str | None = None,
+                capture_mode: str = "digital", witness_name: str | None = None,
+                cross_border: bool = False) -> dict:
+    """Grant or withdraw consent. Idempotent, audited, and event-publishing.
+
+    Evidence of what was shown (notice version, language, capture mode) is
+    recorded automatically — see the stamping below. Callers do not have to
+    remember to pass it, because a system that only captures evidence when
+    someone remembers will eventually fail to capture it.
+    """
+    validate_evidence(capture_mode, witness_name)
     purpose = repo.resolve_purpose(db, purpose_ref)
     if purpose is None:
         raise ConsentError(f"Unknown purpose: {purpose_ref}")
@@ -64,11 +84,17 @@ def set_consent(db: Session, *, subject_id: str, purpose_ref: str, channel_ref: 
         updated = repo.update_status(db, str(existing["id"]), new_status)
         consent_id = str(updated["id"])
     else:
+        # Stamp the notice that was live at the moment of capture. None is a
+        # truthful record that nothing was published, not a failure.
+        notice = repo.current_notice_version(db)
         consent_id = repo.insert(
             db, subject_id=subject_id, purpose_id=str(purpose["id"]),
             channel_id=str(channel["id"]), status=new_status, legal_basis=legal_basis,
             source_system=source_system, source_ip=source_ip, user_agent=user_agent,
             expires_at=_expiry_for(purpose) if granted else None, metadata=metadata,
+            banner_version_id=str(notice["banner_version_id"]) if notice else None,
+            language_version=language_version, capture_mode=capture_mode,
+            witness_name=witness_name, cross_border=cross_border,
         )
     db.commit()
 
@@ -79,7 +105,9 @@ def set_consent(db: Session, *, subject_id: str, purpose_ref: str, channel_ref: 
         actor_type="user" if source_system in ("PMP", "pmp_portal") else "system",
         actor_ip=source_ip, old_values=old_values,
         new_values={"status": new_status, "purpose": purpose["name"],
-                    "channel": channel["name"], "source": source_system},
+                    "channel": channel["name"], "source": source_system,
+                    "capture_mode": capture_mode,
+                    "language_version": language_version},
         reason=reason, legal_basis=legal_basis,
     )
 
@@ -89,9 +117,15 @@ def set_consent(db: Session, *, subject_id: str, purpose_ref: str, channel_ref: 
         "channel": channel["name"], "status": new_status, "source": source_system,
     })
 
+    stamped = repo.get(db, consent_id)
     return {
         "applied": True, "reason": decision, "consent_id": consent_id,
         "status": new_status, "purpose": purpose["name"], "channel": channel["name"],
+        "evidence": {
+            "notice_version": stamped.get("notice_version") if stamped else None,
+            "language_version": language_version,
+            "capture_mode": capture_mode,
+        },
     }
 
 

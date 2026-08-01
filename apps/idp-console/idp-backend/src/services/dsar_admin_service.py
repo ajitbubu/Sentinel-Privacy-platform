@@ -53,10 +53,13 @@ def collect_subject_data(db: Session, subject_id: str) -> dict:
     consents = db.execute(
         text("""
             SELECT c.id, p.name AS purpose, ch.name AS channel, c.status, c.legal_basis,
-                   c.created_at, c.granted_at, c.withdrawn_at, c.expires_at, c.source_system
+                   c.created_at, c.granted_at, c.withdrawn_at, c.expires_at, c.source_system,
+                   c.language_version, c.capture_mode, c.witness_name,
+                   bv.version AS notice_version, bv.created_at AS notice_published_at
             FROM consents c
             JOIN purposes p ON c.purpose_id = p.id
             JOIN channels ch ON c.channel_id = ch.id
+            LEFT JOIN banner_versions bv ON bv.id = c.banner_version_id
             WHERE c.subject_id = CAST(:sid AS UUID) AND c.deleted_at IS NULL
             ORDER BY c.created_at DESC
         """),
@@ -94,7 +97,9 @@ def collect_subject_data(db: Session, subject_id: str) -> dict:
         "notes": (
             "This export contains all personal data held about you. Records proving "
             "consent withdrawal are retained where required by law even after deletion; "
-            "these are listed in the audit trail."
+            "these are listed in the audit trail. Each consent below shows the version "
+            "of the notice you were shown and the language it was served in, so you can "
+            "see exactly what you agreed to."
         ),
     }
 
@@ -183,13 +188,15 @@ def render_pdf(data: dict) -> bytes:
           [55 * mm, 110 * mm])
 
     if data["consents"]:
-        rows = [["Purpose", "Channel", "Status", "Basis", "Source", "Updated"]]
+        rows = [["Purpose", "Channel", "Status", "Notice", "Lang", "Mode", "Updated"]]
         for c in data["consents"]:
             rows.append([c["purpose"], c["channel"], c["status"].capitalize(),
-                         c["legal_basis"].replace("_", " "),
-                         _display(c.get("source_system")),
+                         _display(c.get("notice_version") and f"v{c['notice_version']}"),
+                         _display(c.get("language_version")),
+                         _display((c.get("capture_mode") or "").replace("_", " ")),
                          _display(str(c.get("granted_at") or c.get("withdrawn_at") or "")[:19])])
-        table("Your consents", rows, [32 * mm, 26 * mm, 24 * mm, 26 * mm, 26 * mm, 31 * mm])
+        table("Your consents", rows,
+              [30 * mm, 22 * mm, 22 * mm, 16 * mm, 16 * mm, 30 * mm, 29 * mm])
 
     if data["audit_trail"]:
         story.append(PageBreak())

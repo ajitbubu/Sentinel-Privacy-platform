@@ -17,6 +17,16 @@ class GrantRequest(BaseModel):
     channel: str
     legal_basis: str = "consent"
     metadata: dict = Field(default_factory=dict)
+    # Evidence. The notice version is stamped server-side from whatever is
+    # published; only the parts the client actually knows are accepted here.
+    language_version: str | None = Field(
+        default=None, max_length=35,
+        description="Language the notice was served in (DPDP s.5(3), Eighth Schedule)")
+    capture_mode: str = Field(
+        default="digital", pattern="^(digital|physical|thumb_impression_witnessed)$")
+    witness_name: str | None = Field(
+        default=None, max_length=255,
+        description="Required when capture_mode is thumb_impression_witnessed")
 
 
 class WithdrawRequest(BaseModel):
@@ -73,6 +83,9 @@ def grant_consent(body: GrantRequest, request: Request,
             source_ip=_client_ip(request),
             user_agent=request.headers.get("user-agent"),
             metadata=body.metadata,
+            language_version=body.language_version,
+            capture_mode=body.capture_mode,
+            witness_name=body.witness_name,
         )
     except ConsentError as e:
         raise HTTPException(400, str(e))
