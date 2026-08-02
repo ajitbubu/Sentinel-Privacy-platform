@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Apollo Clinics — booking</title>
+
+<!-- Sentinel snippet: this is what a customer pastes into their <head> -->
+<script>
+!function(w,d,s,u){w.sentinel=w.sentinel||function(){(w.sentinel.q=w.sentinel.q||[]).push(arguments)};
+var e=d.createElement(s);e.async=1;e.src=u;d.head.appendChild(e)}
+(window,document,'script','/sentinel.js');
+sentinel('init',{key:'PK_PLACEHOLDER',api:'API_PLACEHOLDER'});
+</script>
+
+<!-- A parser-inserted tracker marked up cooperatively. Inert until consent. -->
+<script type="text/plain" data-sentinel-purpose="analytics">
+  window.__analyticsRan = true;
+</script>
+</head>
+<body>
+<h1>Book an appointment</h1>
+<button id="inject">simulate a tag manager injecting GA</button>
+<script>
+document.getElementById('inject').addEventListener('click',function(){
+  var s=document.createElement('script');
+  s.src='https://www.googletagmanager.com/gtag/js?id=G-TEST';
+  document.head.appendChild(s);
+});
+</script>
+</body>
+</html>

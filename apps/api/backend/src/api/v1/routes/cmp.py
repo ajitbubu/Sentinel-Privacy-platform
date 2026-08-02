@@ -79,7 +79,6 @@ def get_config(
 # --------------------------------------------------------------- collector
 
 class CollectRequest(BaseModel):
-    site_key: str
     pseudonymous_id: str | None = Field(None, description="Omit on first visit")
     purposes: dict[str, bool] = Field(default_factory=dict)
     purposes_presented: dict[str, bool] = Field(default_factory=dict)
@@ -88,29 +87,39 @@ class CollectRequest(BaseModel):
     page_url: str | None = Field(None, max_length=2000)
 
 
-@router.options("/collect")
-def collect_preflight(request: Request, db: Session = Depends(get_db)):
-    """CORS preflight, answered per-site rather than with a blanket wildcard."""
+@router.options("/collect/{publishable_key}")
+def collect_preflight(publishable_key: str, request: Request,
+                      db: Session = Depends(get_db)):
+    """CORS preflight, answered per-site rather than with a blanket wildcard.
+
+    The key has to be in the path. A preflight carries no custom headers — the
+    browser sends only their *names* in Access-Control-Request-Headers — so an
+    earlier version that read x-site-key here could never resolve the site, and
+    the preflight failed closed on every real cross-origin POST.
+
+    This is not the authorisation point. A preflight is a browser courtesy and
+    anything can skip it; the check that matters is the one on the POST below.
+    """
     origin = request.headers.get("origin")
-    key = request.headers.get("x-site-key", "")
-    site = site_service.get_site_by_key(db, key) if key else None
+    site = site_service.get_site_by_key(db, publishable_key)
     if not site or not site_service.origin_allowed(origin, site["allowed_origins"]):
         raise HTTPException(403, "Origin not allowed")
     return Response(status_code=204, headers={
         "Access-Control-Allow-Origin": origin,
         "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "content-type, x-site-key",
+        "Access-Control-Allow-Headers": "content-type",
         "Access-Control-Max-Age": "86400",
+        "Vary": "Origin",
     })
 
 
-@router.post("/collect", status_code=201)
-def collect(body: CollectRequest, request: Request, response: Response,
-            db: Session = Depends(get_db)):
+@router.post("/collect/{publishable_key}", status_code=201)
+def collect(publishable_key: str, body: CollectRequest, request: Request,
+            response: Response, db: Session = Depends(get_db)):
     origin = request.headers.get("origin")
     user_agent = request.headers.get("user-agent")
 
-    site = site_service.get_site_by_key(db, body.site_key)
+    site = site_service.get_site_by_key(db, publishable_key)
     if site is None:
         raise HTTPException(404, "Unknown site key")
 
@@ -119,8 +128,18 @@ def collect(body: CollectRequest, request: Request, response: Response,
         log.warning("collector origin rejected: site=%s origin=%s", site["slug"], origin)
         raise HTTPException(403, "Origin not allowed for this site")
 
+    # From here on the origin is approved, so every exit — success, validation
+    # error, throttle, bot — carries the CORS header. Without it the browser
+    # refuses to surface the response at all and the loader sees an opaque
+    # "Failed to fetch" instead of the actual status. That turns a 429 the
+    # client could back off from into an indistinguishable network error.
+    cors = {"Access-Control-Allow-Origin": origin or "", "Vary": "Origin"}
+    response.headers.update(cors)
+
     if body.interaction_type not in VALID_INTERACTIONS:
-        raise HTTPException(400, f"interaction_type must be one of {sorted(VALID_INTERACTIONS)}")
+        raise HTTPException(
+            400, f"interaction_type must be one of {sorted(VALID_INTERACTIONS)}",
+            headers=cors)
 
     # Crawlers are not Data Principals. Recording their consent would pollute
     # the register with records no person ever gave.
@@ -137,7 +156,8 @@ def collect(body: CollectRequest, request: Request, response: Response,
     if hits == 1:
         _redis.expire(rl_key, 60)
     if hits > settings.collector_rate_per_minute:
-        raise HTTPException(429, "Rate limit exceeded", headers={"Retry-After": "60"})
+        raise HTTPException(429, "Rate limit exceeded",
+                            headers={**cors, "Retry-After": "60"})
 
     # Per-site ceiling. The per-client bucket is only as good as our ability to
     # identify a client, and a botnet has many real addresses. This bounds the
@@ -148,7 +168,8 @@ def collect(body: CollectRequest, request: Request, response: Response,
         _redis.expire(site_key_rl, 60)
     if site_hits > settings.collector_rate_per_site_per_minute:
         log.warning("site-wide collector ceiling hit: site=%s", site["slug"])
-        raise HTTPException(429, "Rate limit exceeded", headers={"Retry-After": "60"})
+        raise HTTPException(429, "Rate limit exceeded",
+                            headers={**cors, "Retry-After": "60"})
 
     # First visit mints an id; later visits present their own.
     try:
@@ -174,7 +195,7 @@ def collect(body: CollectRequest, request: Request, response: Response,
 
     receipt_id = receipt_service.new_receipt_id()
     token, expires = receipt_service.sign(
-        receipt_id=receipt_id, site_key=body.site_key,
+        receipt_id=receipt_id, site_key=publishable_key,
         pseudonymous_id=pseudonymous_id, purposes=body.purposes,
         banner_version=banner_version, language=language,
     )
@@ -201,7 +222,6 @@ def collect(body: CollectRequest, request: Request, response: Response,
     )
     db.commit()
 
-    response.headers["Access-Control-Allow-Origin"] = origin or ""
     return {
         "receipt_id": receipt_id,
         "pseudonymous_id": pseudonymous_id,

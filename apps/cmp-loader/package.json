@@ -1,0 +1,14 @@
+{
+  "name": "@sentinel/cmp-loader",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Embeddable consent banner loader for customer websites",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "python3 browser_test.py"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1",
+    "typescript": "^5.4.0"
+  }
+}

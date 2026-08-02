@@ -91,14 +91,14 @@ def clean_limits():
 
 
 def _post(client, site, **over):
-    body = {"site_key": site["key"], "purposes": {"marketing": True, "analytics": False},
+    body = {"purposes": {"marketing": True, "analytics": False},
             "purposes_presented": {"marketing": True, "analytics": True, "essential": True},
             "interaction_type": "save_preferences", "language": "te",
             "page_url": "https://apollo.example.in/book"}
     headers = {"Origin": ORIGIN, "User-Agent": UA}
     headers.update(over.pop("headers", {}))
     body.update(over)
-    return client.post("/api/v1/cmp/collect", json=body, headers=headers)
+    return client.post("/api/v1/cmp/collect/" + site["key"], json=body, headers=headers)
 
 
 # ------------------------------------------------------------------- config
@@ -196,8 +196,8 @@ def test_disallowed_origins_are_rejected(client, site, origin):
 
 
 def test_missing_origin_is_rejected(client, site):
-    r = client.post("/api/v1/cmp/collect",
-                    json={"site_key": site["key"], "purposes": {},
+    r = client.post("/api/v1/cmp/collect/" + site["key"],
+                    json={"purposes": {},
                           "purposes_presented": {}, "interaction_type": "accept_all"},
                     headers={"User-Agent": UA})
     assert r.status_code == 403
