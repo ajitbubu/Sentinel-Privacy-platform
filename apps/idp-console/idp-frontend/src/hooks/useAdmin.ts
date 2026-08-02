@@ -136,3 +136,52 @@ export const useByPurpose = () => useQuery({
   queryFn: async () => (await api.get<{ purposes: { purpose: string; granted: number; withdrawn: number; grant_rate: number }[] }>(
     '/admin/analytics/by-purpose')).data,
 })
+
+
+/* ---------- consent admin ---------- */
+export interface AdminConsent {
+  id: string; subject_email: string; subject_id: string
+  purpose: string; purpose_slug: string; channel: string
+  status: string; legal_basis: string; source_system: string | null
+  created_at: string; granted_at: string | null; withdrawn_at: string | null
+  is_active: boolean
+  language_version: string | null; capture_mode: string; witness_name: string | null
+  notice_version: number | null; has_evidence: boolean
+}
+
+export function useConsentSearch(filters: Record<string, string | boolean | number>) {
+  return useQuery({
+    queryKey: ['admin-consents', filters],
+    queryFn: async () => {
+      const params = new URLSearchParams()
+      Object.entries(filters).forEach(([k, v]) => {
+        if (v !== '' && v !== undefined && v !== null) params.set(k, String(v))
+      })
+      return (await api.get<{ consents: AdminConsent[]; total: number; page: number }>(
+        `/admin/consent?${params}`)).data
+    },
+  })
+}
+
+export function useConsentTimeline(id: string | null) {
+  return useQuery({
+    queryKey: ['consent-timeline', id],
+    queryFn: async () => (await api.get(`/admin/consent/${id}`)).data,
+    enabled: Boolean(id),
+  })
+}
+
+export function useOverrideConsent() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, status, reason }: { id: string; status: string; reason: string }) =>
+      (await api.put(`/admin/consent/${id}`, { status, reason })).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-consents'] })
+      qc.invalidateQueries({ queryKey: ['consent-timeline'] })
+      toast.success('Consent overridden', { description: 'Recorded in the audit trail.' })
+    },
+    onError: (e: { response?: { data?: { detail?: string } } }) =>
+      toast.error(e.response?.data?.detail ?? 'Override failed'),
+  })
+}
