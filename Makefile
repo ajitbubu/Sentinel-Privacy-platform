@@ -1,4 +1,4 @@
-.PHONY: help up down reset logs ps seed admin apikey test health web
+.PHONY: help up down reset logs ps seed admin apikey test health web cmp-build cmp-test test-all
 
 help:
 	@echo "Sentinel Privacy Platform"
@@ -12,6 +12,9 @@ help:
 	@echo "  make down    Stop everything (keeps data)"
 	@echo "  make reset   Stop and DELETE all data, then re-seed from scratch"
 	@echo "  make test    Run backend test suites"
+	@echo "  make cmp-build  Build the embeddable CMP loader script"
+	@echo "  make cmp-test   Drive the loader in real Chromium (needs make up)"
+	@echo "  make test-all   Backends + loader"
 
 up:
 	docker compose up -d --build
@@ -59,3 +62,17 @@ test:
 	cd apps/pmp-portal/pmp-backend && python3 -m pytest tests -q
 	cd apps/idp-console/idp-backend && python3 -m pytest tests -q
 	cd apps/api/backend && python3 -m pytest tests -q
+
+# ---------------------------------------------------------------- CMP loader
+# The script customers embed. Built separately from the React apps: it has no
+# framework and a hard size budget, and build.mjs fails rather than let it
+# regress past 15 KB gzipped.
+cmp-build:
+	cd apps/cmp-loader && npm install && npm run build
+
+# Drives the built bundle in real Chromium against a live collector. Needs
+# postgres + redis up (make up) and playwright installed.
+cmp-test:
+	cd apps/cmp-loader && python3 browser_test.py
+
+test-all: test cmp-test

@@ -4,8 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Sentinel Privacy Platform: a centralised consent management system with three
-apps sharing one database:
+Sentinel Privacy Platform: a centralised consent management system with four
+apps sharing one database. India (DPDP Act 2023 + DPDP Rules 2025) is the
+target market, not an additional one — GDPR/CCPA are secondary.
 
 - **PMP Portal** (`apps/pmp-portal`) — customer-facing (Internet). Grant/withdraw
   consent, submit DSAR requests. Backend `pmp-backend` (FastAPI, port 8001),
@@ -15,7 +16,12 @@ apps sharing one database:
   Backend `idp-backend` (FastAPI, port 8002), frontend `idp-frontend`
   (Vite/React, port 3002).
 - **External API** (`apps/api/backend`) — partner-facing REST API + webhook
-  receivers for Salesforce, HubSpot, Outreach, Highspot, etc. (port 8003).
+  receivers for Salesforce, HubSpot, Outreach, Highspot, etc. (port 8003). Also
+  hosts the **public CMP surface** under `/api/v1/cmp` — banner config and the
+  consent collector — plus JWKS at the origin root.
+- **CMP loader** (`apps/cmp-loader`) — the script customers embed in their own
+  websites. Vanilla TypeScript, zero dependencies, no framework, bundled by
+  esbuild to a single IIFE. Not a service; it ships to a CDN.
 
 Shared infra: PostgreSQL (consents, subjects, audit — single source of truth),
 MongoDB (event history), Redis (cache + pub/sub + the webhook delivery queue),
@@ -32,7 +38,10 @@ make web          # pnpm install + pnpm dev (both frontends)
 make logs         # docker compose logs -f
 make down         # stop containers, keep volumes
 make reset        # docker compose down -v && up --build — wipes and re-seeds the DB
-make test         # pytest for pmp-backend and idp-backend
+make test         # pytest for all three backends
+make cmp-build    # bundle the embeddable loader (build fails above 15 KB gzipped)
+make cmp-test     # drive the loader in real Chromium against a live collector
+make test-all     # backends + loader
 ```
 
 Running a single backend locally (not in Docker) for fast iteration:
@@ -123,6 +132,53 @@ aliases, the more specific path (e.g. `@sentinel/ui/styles.css`) must be
 listed *before* the broader one (`@sentinel/ui`) in the alias object — Vite's
 alias matcher does prefix matching in insertion order, so a broader key
 declared first silently swallows the specific one.
+
+**The CMP is a different trust boundary from the rest of the API.** Everything
+under `/api/v1/cmp` is authenticated by a *publishable* key (`pk_site_*`, which
+lives in the customer's page source by design) plus the browser `Origin` header
+— not by a secret API key. That is why it sits on its own path prefix: it can
+take different WAF and rate-limit rules at the edge. The origin allowlist is
+the primary control; wildcards match exactly one label, so `https://*.acme.com`
+covers `shop.acme.com` but not `a.b.acme.com` and not `evil-acme.com`.
+
+Three constraints in that surface are easy to break by accident:
+
+- **The publishable key must stay in the URL path** on `/collect/{key}`. A CORS
+  preflight carries no custom headers — only their *names* — so a header-based
+  key could never be resolved and every cross-origin POST failed closed.
+- **Every response path after origin approval must carry the CORS header**,
+  including bot rejections, validation errors and 429s. Without it the browser
+  hides the real status and the loader sees an opaque "Failed to fetch", so a
+  throttle it could back off from is indistinguishable from a network error.
+- **`COLLECTOR_TRUSTED_PROXY_HOPS` must match the deployed topology.** The
+  limiter counts `X-Forwarded-For` entries from the *right*, because the left
+  end is written by the caller. Set it too low behind a load balancer and every
+  visitor shares one bucket; set it too high and callers can spoof past the
+  limit. See `.env.example` — this is a deploy-time landmine, not a preference.
+
+**Language is evidence, not presentation.** The `languages` table holds all 22
+Eighth Schedule languages plus English. The language actually served is stamped
+on the consent record, because DPDP s.6(10) puts the burden of proving valid
+consent on the Data Fiduciary and R.3 requires the notice version. A record
+that cannot say which words the person read does not discharge that burden.
+`purposes_presented` records what was on screen next to what was chosen, for
+the same reason — and its values are the *pre-set state*, so a row of `false`
+is the evidence that nothing was pre-ticked.
+
+**Tag blocking has a hard limit that is a commercial fact, not a bug.**
+Cooperative blocking (`type="text/plain"` + `data-sentinel-purpose`) is
+guaranteed. Auto-blocking traps the `script.src` setter — a MutationObserver
+alone is NOT sufficient and was measured failing, because the browser starts
+fetching the moment `src` is set and observer callbacks are microtasks that
+arrive afterwards. Even with the trap, a plain `<script src>` in the customer's
+*served HTML* still executes: the parser runs those synchronously. Auto-block
+reduces leakage; it does not make a site compliant on its own. Do not let docs,
+sales material or the console imply otherwise.
+
+**The loader has a hard size budget.** `apps/cmp-loader/build.mjs` fails the
+build above 15 KB gzipped (currently 5.6 KB) because the script sits on the
+customer's critical rendering path. Adding a dependency to it is a decision,
+not a detail.
 
 **Real-time propagation target is <1s** for platform/integrated-systems and
 ~30s for end-user browsers (CDN-cached banner config) — see the `propagation`
